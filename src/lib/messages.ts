@@ -52,6 +52,9 @@ export type RecorderEvent =
       warning?: string;
       /** Something the user must act on in the recorder window (keeps it un-minimised). */
       attention?: string;
+      /** OPFS files still open by the recorder (excluded from the recovery list). */
+      openFiles: string[];
+      part: number;
     }
   | {
       to: 'background';
@@ -63,7 +66,18 @@ export type RecorderEvent =
       savedTo: 'downloads' | 'directory';
       location: string;
       fallbackReason?: string;
+      /** Number of files when auto-segmented (1 otherwise). */
+      parts: number;
     }
+  | {
+      to: 'background';
+      type: 'PART_SAVED';
+      part: number;
+      fileName: string;
+      location: string;
+      fallbackReason?: string;
+    }
+  | { to: 'background'; type: 'PART_FAILED'; part: number; message: string }
   | { to: 'background'; type: 'ERROR'; code: ErrorCode; message: string };
 
 export type BackgroundMessage = PopupCommand | RecorderEvent;

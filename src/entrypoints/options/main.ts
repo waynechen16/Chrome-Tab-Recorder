@@ -1,5 +1,9 @@
 /** Options page — recording quality, save location, file name, window, microphone. */
+import { clearLog, readLog } from '@/lib/error-log';
 import { buildFileName } from '@/lib/filename';
+import { listPending } from '@/lib/pending';
+import { discardRecording, repairAndExport } from '@/lib/recovery';
+import { formatBytes, formatDuration, getState } from '@/lib/state';
 import { listMics, micConstraints, micErrorMessage, micPermission, type MicPermission } from '@/lib/mic';
 import { loadSettings, resetSettings, saveSettings, type Settings } from '@/lib/settings';
 import {
@@ -29,6 +33,12 @@ const ui = {
   level: $('level'),
   device: $<HTMLSelectElement>('device'),
   reset: $<HTMLButtonElement>('reset'),
+  recovery: $('recovery'),
+  pendingList: $('pendingList'),
+  recoveryResult: $('recoveryResult'),
+  log: $('log'),
+  logEmpty: $('logEmpty'),
+  clearLog: $<HTMLButtonElement>('clearLog'),
   version: $('version'),
 };
 
@@ -218,6 +228,104 @@ ui.device.onchange = async () => {
 };
 navigator.mediaDevices.addEventListener('devicechange', () => void renderDevices(ui.device.value));
 
+// ---------- recovery ----------
+
+const fmtTime = (t: number) =>
+  new Date(t).toLocaleString('zh-TW', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+
+/** Set while a repair runs, so storage-change re-renders don't wipe its status line. */
+let repairing = false;
+
+async function renderPending(force = false): Promise<void> {
+  if (repairing && !force) return;
+  const state = await getState();
+  const active = state.phase !== 'idle' && state.phase !== 'error';
+  const list = await listPending(active ? state.openFiles ?? [] : []);
+  ui.recovery.hidden = list.length === 0 && !ui.recoveryResult.textContent;
+  ui.pendingList.replaceChildren(
+    ...list.map((p) => {
+      const li = document.createElement('li');
+      const info = document.createElement('div');
+      info.className = 'info';
+      const title = document.createElement('div');
+      title.className = 'title';
+      title.textContent = p.title + (p.part ? `（第 ${p.part} 段）` : '');
+      title.title = p.name;
+      const meta = document.createElement('div');
+      meta.className = 'muted small';
+      meta.textContent = `開始於 ${fmtTime(p.startedAt)} ・ 最後寫入 ${fmtTime(p.lastModified)} ・ ${formatBytes(p.size)}`;
+      info.append(title, meta);
+      const repair = document.createElement('button');
+      repair.className = 'primary small';
+      repair.textContent = '修復並存檔';
+      const del = document.createElement('button');
+      del.className = 'small danger';
+      del.textContent = '刪除';
+      const status = document.createElement('div');
+      status.className = 'status muted';
+      repair.onclick = async () => {
+        repair.disabled = del.disabled = true;
+        repairing = true;
+        status.textContent = '修復中…（大檔案需要數秒到數十秒）';
+        try {
+          const handle = settings.saveLocation === 'directory' ? await getSaveDirectory() : undefined;
+          // This click is a user gesture, so we may ask for folder access here.
+          if (handle && (await saveDirectoryPermission(handle)) !== 'granted') await requestSaveDirectoryPermission(handle);
+          const r = await repairAndExport(p.name, handle ? { kind: 'directory', handle } : { kind: 'downloads' });
+          status.textContent = ui.recoveryResult.textContent =
+            `已修復「${p.title}」並存到「${r.location}」：${r.fileName}` +
+            (r.durationMs !== null ? `（時長 ${formatDuration(r.durationMs)}）` : '') +
+            (r.fallbackReason ? ` — 無法寫入資料夾（${r.fallbackReason}），改存到下載資料夾` : '') +
+            (r.durationFixed ? '' : ' — 時長資訊無法修復，播放器可能無法拖曳進度');
+        } catch (e) {
+          status.textContent = `修復失敗：${(e as Error).message}`;
+          repair.disabled = del.disabled = false;
+          await renderLog();
+        } finally {
+          repairing = false;
+        }
+        await renderPending(true);
+      };
+      del.onclick = async () => {
+        if (!confirm(`刪除「${p.title}」？這個動作無法復原。`)) return;
+        await discardRecording(p.name).catch((e) => alert(`刪除失敗：${(e as Error).message}`));
+        await renderPending();
+      };
+      li.append(info, repair, del, status);
+      return li;
+    }),
+  );
+}
+
+// ---------- error log ----------
+
+async function renderLog(): Promise<void> {
+  const entries = await readLog();
+  ui.logEmpty.hidden = entries.length > 0;
+  ui.clearLog.hidden = entries.length === 0;
+  ui.log.replaceChildren(
+    ...entries.map((e) => {
+      const li = document.createElement('li');
+      const t = document.createElement('span');
+      t.className = 'muted';
+      t.textContent = fmtTime(e.at);
+      const lvl = document.createElement('span');
+      lvl.className = `lvl-${e.level}`;
+      lvl.textContent = { error: '錯誤', warn: '警告', info: '資訊' }[e.level];
+      const msg = document.createElement('span');
+      msg.textContent = e.message;
+      msg.title = e.code;
+      li.append(t, lvl, msg);
+      return li;
+    }),
+  );
+}
+
+ui.clearLog.onclick = async () => {
+  await clearLog();
+  await renderLog();
+};
+
 // ---------- reset ----------
 
 ui.reset.onclick = async () => {
@@ -242,14 +350,22 @@ async function init(): Promise<void> {
   await renderDirectory();
   await renderPermission();
   await renderDevices(settings.micDeviceId);
+  await renderPending();
+  await renderLog();
+  if (location.hash === '#recovery') ui.recovery.scrollIntoView();
   // Reflect changes made elsewhere (e.g. the popup's mic switch).
   chrome.storage.onChanged.addListener(async (changes, area) => {
     if (area === 'local' && changes.settings) {
       settings = await loadSettings();
       renderControls();
     }
+    if (area === 'local' && changes.errorLog) await renderLog();
+    if (area === 'session' || (area === 'local' && changes.pendingRecordings)) await renderPending();
   });
-  window.addEventListener('focus', () => void renderDirectory());
+  window.addEventListener('focus', () => {
+    void renderDirectory();
+    void renderPending();
+  });
 }
 
 void init();

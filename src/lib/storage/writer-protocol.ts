@@ -1,6 +1,8 @@
 /** Messages between OpfsSink (page) and opfs-writer.worker.ts. */
 export type WriterRequest =
   | { id: number; op: 'open'; name: string }
+  /** Open an existing file without truncating it (crash recovery). */
+  | { id: number; op: 'openExisting'; name: string }
   | { id: number; op: 'write'; data: ArrayBuffer }
   | { id: number; op: 'patch'; offset: number; data: ArrayBuffer }
   | { id: number; op: 'close' }

@@ -13,6 +13,8 @@ export interface Settings {
   audioBitsPerSecond: number;
   /** Minimise the recorder window once recording has started. */
   autoMinimize: boolean;
+  /** Start a new file every N minutes of recording (0 = one file). */
+  segmentMinutes: 0 | 30 | 60 | 120;
   /** Tokens: {title} {date} {time}. `.webm` is appended. */
   fileNameTemplate: string;
   /** Where finished recordings go. 'directory' uses the folder picked on the Options page. */
@@ -32,6 +34,7 @@ export const DEFAULT_SETTINGS: Settings = {
   videoBitsPerSecond: 4_000_000,
   audioBitsPerSecond: 128_000,
   autoMinimize: true,
+  segmentMinutes: 0,
   fileNameTemplate: '{title}_{date}_{time}',
   saveLocation: 'downloads',
   directoryName: '',
@@ -52,6 +55,7 @@ export const CHOICES = {
   videoCodec: ['vp9', 'vp8'] as Settings['videoCodec'][],
   videoBitsPerSecond: [2_000_000, 4_000_000, 6_000_000, 8_000_000, 12_000_000],
   audioBitsPerSecond: [96_000, 128_000, 192_000],
+  segmentMinutes: [0, 30, 60, 120] as Settings['segmentMinutes'][],
 };
 
 /**
@@ -73,6 +77,7 @@ export function normalizeSettings(stored: Record<string, unknown> | undefined): 
   pick('videoBitsPerSecond', (v) => typeof v === 'number' && v >= 500_000 && v <= 50_000_000);
   pick('audioBitsPerSecond', (v) => typeof v === 'number' && v >= 32_000 && v <= 512_000);
   pick('autoMinimize', bool);
+  pick('segmentMinutes', oneOf(CHOICES.segmentMinutes));
   pick('fileNameTemplate', (v) => str(v) && (v as string).trim().length > 0);
   pick('saveLocation', oneOf(['downloads', 'directory']));
   pick('directoryName', str);

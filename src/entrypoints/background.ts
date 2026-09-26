@@ -12,6 +12,7 @@ import {
   type InitResponse,
   type RecorderCommand,
 } from '@/lib/messages';
+import { logEvent } from '@/lib/error-log';
 import { loadSettings } from '@/lib/settings';
 import { canTransition, formatBytes, formatDuration, getState, resetState, setState } from '@/lib/state';
 
@@ -57,8 +58,9 @@ export default defineBackground({
       await setBadge('error');
       await resetState({
         phase: 'error',
-        lastError: '錄製視窗被關閉，錄製已中斷。已錄到的內容保留在 extension 儲存空間（M4 將提供修復功能）。',
+        lastError: '錄製視窗被關閉，錄製已中斷。已錄到的內容仍保留：請到設定頁「未完成的錄製」修復並存檔。',
       });
+      await logEvent('error', 'RECORDER_CLOSED', `錄製「${s.targetTitle ?? ''}」時錄製視窗被關閉`);
     });
 
     // Browser restarted with stale state: nothing can still be recording.
@@ -171,6 +173,8 @@ async function handle(msg: BackgroundMessage, sender: chrome.runtime.MessageSend
         micError: msg.micError,
         warning: msg.warning,
         attention: msg.attention,
+        openFiles: msg.openFiles,
+        part: msg.part,
       });
 
       if (msg.phase !== s.phase && (msg.phase === 'recording' || msg.phase === 'paused')) {
@@ -202,16 +206,33 @@ async function handle(msg: BackgroundMessage, sender: chrome.runtime.MessageSend
           savedTo: msg.savedTo,
           location: msg.location,
           fallbackReason: msg.fallbackReason,
+          parts: msg.parts,
         },
       });
       chrome.notifications.create({
         type: 'basic',
         iconUrl: chrome.runtime.getURL('/icon/128.png'),
         title: msg.fallbackReason ? '錄製已存檔（改存到下載資料夾）' : `錄製已存到「${msg.location}」`,
-        message: `${msg.fileName}\n${formatDuration(msg.durationMs)} · ${formatBytes(msg.bytes)}`,
+        message:
+          (msg.parts > 1 ? `共 ${msg.parts} 個檔案，最後一段：${msg.fileName}` : msg.fileName) +
+          `\n${formatDuration(msg.durationMs)} · ${formatBytes(msg.bytes)}`,
       });
       return;
     }
+
+    case 'PART_SAVED':
+      // Quiet: the recorder window and final notification cover it.
+      if (msg.fallbackReason) await logEvent('warn', 'FOLDER_FALLBACK', `第 ${msg.part} 段：${msg.fallbackReason}`);
+      return;
+
+    case 'PART_FAILED':
+      chrome.notifications.create({
+        type: 'basic',
+        iconUrl: chrome.runtime.getURL('/icon/128.png'),
+        title: `第 ${msg.part} 段存檔失敗（錄製繼續中）`,
+        message: msg.message,
+      });
+      return;
 
     case 'ERROR': {
       const s = await getState();

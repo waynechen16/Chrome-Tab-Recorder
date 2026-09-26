@@ -14,6 +14,7 @@ export interface LastRecording {
   savedTo?: 'downloads' | 'directory';
   location?: string;
   fallbackReason?: string;
+  parts?: number;
 }
 
 export interface RecordingState {
@@ -32,6 +33,10 @@ export interface RecordingState {
   micError?: string;
   warning?: string;
   attention?: string;
+  /** OPFS files the recorder still has open. */
+  openFiles?: string[];
+  /** Current segment number (1-based). */
+  part?: number;
   lastError?: string;
   lastRecording?: LastRecording;
 }

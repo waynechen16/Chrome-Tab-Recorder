@@ -15,6 +15,16 @@
       </header>
       <p class="muted">變更會自動儲存，並在下一次開始錄製時生效。</p>
 
+      <!-- Recovery -->
+      <section id="recovery" class="card attention" hidden>
+        <h2>未完成的錄製</h2>
+        <p class="muted small">
+          這些錄製沒有正常存檔（例如 Chrome 當機、錄製視窗被關閉、存檔失敗）。內容仍保留在 extension 的儲存空間，可以修復時長後存到你設定的位置。
+        </p>
+        <ul id="pendingList" class="pending"></ul>
+        <p id="recoveryResult" class="result small"></p>
+      </section>
+
       <!-- Quality -->
       <section class="card">
         <h2>錄影品質</h2>
@@ -105,13 +115,23 @@
         <p class="small">預覽：<code id="preview"></code></p>
       </section>
 
-      <!-- Recorder window -->
+      <!-- Recording behaviour -->
       <section class="card">
-        <h2>錄製視窗</h2>
+        <h2>錄製行為</h2>
         <label class="check">
           <input data-key="autoMinimize" type="checkbox" />
-          <span>錄製開始後自動最小化（需要你操作時，例如授權，會保持開啟）</span>
+          <span>錄製開始後自動最小化錄製視窗（需要你操作時，例如授權，會保持開啟）</span>
         </label>
+        <label class="field">
+          <span>自動分段</span>
+          <select data-key="segmentMinutes" data-type="number">
+            <option value="0">不分段（整堂課一個檔案）</option>
+            <option value="30">每 30 分鐘一個檔案</option>
+            <option value="60">每 60 分鐘一個檔案</option>
+            <option value="120">每 120 分鐘一個檔案</option>
+          </select>
+        </label>
+        <p class="muted small">分段時檔名會加上 <code>_part1</code>、<code>_part2</code>…；換檔不中斷錄製，前一段在背景存檔。萬一中途當機，最多只影響當下那一段。</p>
       </section>
 
       <!-- Microphone -->
@@ -146,6 +166,16 @@
           <span>開始錄製時預設混入麥克風（也可在工具列視窗裡切換）</span>
         </label>
         <p class="muted small">建議戴耳機錄製：用喇叭時，課程聲音可能經由麥克風被重複錄進去。</p>
+      </section>
+
+      <!-- Error log -->
+      <section class="card">
+        <div class="row between">
+          <h2>最近的問題紀錄</h2>
+          <button id="clearLog" class="small">清除</button>
+        </div>
+        <ul id="log" class="log"></ul>
+        <p id="logEmpty" class="muted small">目前沒有紀錄。</p>
       </section>
 
       <div class="row">

@@ -2,6 +2,7 @@
 import { send, type CommandResponse, type PopupCommand } from '@/lib/messages';
 import { micPermission, type MicPermission } from '@/lib/mic';
 import { loadSettings, saveSettings, type Settings } from '@/lib/settings';
+import { listPending } from '@/lib/pending';
 import { saveDirectoryPermission } from '@/lib/storage/handle-store';
 
 const RES_LABEL: Record<Settings['resolution'], string> = {
@@ -51,6 +52,7 @@ const ui = {
   openOptions: $<HTMLButtonElement>('openOptions'),
   settings: $<HTMLButtonElement>('settings'),
   saveTo: $('saveTo'),
+  pending: $<HTMLButtonElement>('pending'),
 };
 
 let state: RecordingState;
@@ -58,6 +60,7 @@ let activeTab: chrome.tabs.Tab | undefined;
 let micAtStart = false;
 let micPerm: MicPermission = 'unknown';
 let saveToText = '';
+let pendingCount = 0;
 
 /** Pages Chrome does not allow extensions to capture. */
 function unrecordableReason(tab?: chrome.tabs.Tab): string | null {
@@ -118,6 +121,8 @@ function render(): void {
       ui.unrecordable.hidden = !reason;
       ui.unrecordable.textContent = reason ?? '';
       ui.saveTo.textContent = saveToText;
+      ui.pending.hidden = pendingCount === 0;
+      ui.pending.textContent = `有 ${pendingCount} 個未完成的錄製，按此修復`;
       showNotice(undefined);
       break;
     }
@@ -154,7 +159,7 @@ function render(): void {
   ui.last.hidden = !last || s.phase !== 'idle';
   if (last) {
     ui.last.textContent =
-      `上次存檔：${last.location ? `「${last.location}」／` : ''}${last.fileName}（${formatDuration(last.durationMs)}，${formatBytes(last.bytes)}）` +
+      `上次存檔：${last.location ? `「${last.location}」／` : ''}${last.parts && last.parts > 1 ? `共 ${last.parts} 個檔案，最後一段 ` : ''}${last.fileName}（${formatDuration(last.durationMs)}，${formatBytes(last.bytes)}）` +
       (last.fallbackReason ? ` — 無法存到指定資料夾（${last.fallbackReason}），已改存到下載資料夾` : '') +
       (last.durationFixed ? '' : ' — 注意：時長資訊未寫入');
   }
@@ -189,6 +194,7 @@ ui.micToggle.onchange = async () => {
 };
 ui.openOptions.onclick = () => chrome.runtime.openOptionsPage();
 ui.settings.onclick = () => chrome.runtime.openOptionsPage();
+ui.pending.onclick = () => chrome.tabs.create({ url: chrome.runtime.getURL('/options.html#recovery') });
 
 ui.start.onclick = async () => {
   if (!activeTab?.id) return;
@@ -217,6 +223,7 @@ async function init(): Promise<void> {
   const settings = await loadSettings();
   micAtStart = settings.micOnAtStart;
   saveToText = await describeSaveTarget(settings);
+  pendingCount = (await listPending()).length;
   micPerm = await micPermission();
   state = await getState();
   render();

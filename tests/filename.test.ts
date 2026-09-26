@@ -27,3 +27,12 @@ describe('file names', () => {
     expect(sanitizeTitle('線上課程：第三週')).toBe('線上課程：第三週');
   });
 });
+
+import { partFileName } from '../src/lib/filename';
+
+describe('partFileName', () => {
+  it('inserts the part number before the extension', () => {
+    expect(partFileName('Meet – class_2026-09-26_090507.webm', 2)).toBe('Meet – class_2026-09-26_090507_part2.webm');
+    expect(partFileName('no-ext', 1)).toBe('no-ext_part1.webm');
+  });
+});

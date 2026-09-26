@@ -36,3 +36,4 @@ footer { font-size: 12px; border-top: 1px solid var(--line); padding-top: 8px; }
 .switch input:focus-visible + .slider { outline: 2px solid #1e88e5; outline-offset: 2px; }
 .switch input:disabled + .slider { opacity: .5; }
 button.link.small { align-self: flex-start; flex: none; }
+.warn-link { color: #b26a00 !important; }

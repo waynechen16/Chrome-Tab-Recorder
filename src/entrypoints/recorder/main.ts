@@ -4,14 +4,17 @@
  */
 import { AudioGraph } from '@/lib/audio-graph';
 import { captureSize, getTabStream } from '@/lib/capture';
-import { buildFileName } from '@/lib/filename';
+import { buildFileName, partFileName } from '@/lib/filename';
+import { logEvent } from '@/lib/error-log';
+import { addPending, removePending } from '@/lib/pending';
 import { FAVICON, TITLE_PREFIX } from '@/lib/indicator';
 import { micErrorMessage, micPermission } from '@/lib/mic';
 import { send, type ErrorCode, type InitResponse, type Phase, type RecorderCommand } from '@/lib/messages';
 import { TabRecorder } from '@/lib/recorder';
+import type { Settings } from '@/lib/settings';
 import { formatBytes, formatDuration } from '@/lib/state';
 import { getSaveDirectory, requestSaveDirectoryPermission, saveDirectoryPermission } from '@/lib/storage/handle-store';
-import { OpfsSink, type ExportTarget } from '@/lib/storage/sink';
+import { OpfsSink, type ExportResult, type ExportTarget } from '@/lib/storage/sink';
 
 const MIN_FREE_BYTES = 500 * 1024 ** 2;
 const WARN_FREE_BYTES = 2 * 1024 ** 3;
@@ -36,13 +39,31 @@ const ui = {
   favicon: $<HTMLLinkElement>('favicon'),
 };
 
+/** One output file. Without auto-segmenting there is exactly one. */
+interface Part {
+  index: number;
+  sink: OpfsSink;
+  recorder: TabRecorder;
+  bytes: number;
+}
+
 let phase: Phase = 'starting';
-let bytesWritten = 0;
 let warning: string | undefined;
-let recorder: TabRecorder | undefined;
+let current: Part | undefined;
 let graph: AudioGraph | undefined;
 let stream: MediaStream | undefined;
-let sink: OpfsSink | undefined;
+let recStream: MediaStream | undefined;
+let settings: Settings | undefined;
+let baseFileName = '';
+let tabTitle = '';
+let segmentMs = 0;
+/** Active time and bytes of parts already handed off for export. */
+let completedMs = 0;
+let completedBytes = 0;
+/** Exports of earlier parts still running in the background. */
+const exporting = new Set<Promise<void>>();
+const savedParts: ExportResult[] = [];
+let rotating = false;
 let stopping: Promise<void> | undefined;
 let micError: string | undefined;
 let micDeviceId = '';
@@ -69,11 +90,16 @@ const PHASE_LABEL: Record<Phase, string> = {
   error: '發生錯誤',
 };
 
+const elapsedTotal = () => completedMs + (current?.recorder.elapsedMs() ?? 0);
+const bytesTotal = () => completedBytes + (current?.bytes ?? 0);
+const openFiles = () => [...(current ? [current.sink.fileName] : []), ...exportingNames];
+const exportingNames = new Set<string>();
+
 function render(): void {
-  const elapsed = recorder?.elapsedMs() ?? 0;
+  const elapsed = elapsedTotal();
   ui.phase.textContent = PHASE_LABEL[phase];
   ui.timer.textContent = formatDuration(elapsed);
-  ui.size.textContent = formatBytes(bytesWritten);
+  ui.size.textContent = formatBytes(bytesTotal()) + (current && current.index > 1 ? `（第 ${current.index} 段）` : '');
   ui.dot.className = `dot ${phase === 'recording' ? 'recording' : phase === 'paused' ? 'paused' : ''}`;
   ui.pause.disabled = !(phase === 'recording' || phase === 'paused');
   ui.pause.textContent = phase === 'paused' ? '繼續' : '暫停';
@@ -103,13 +129,15 @@ async function report(): Promise<void> {
     to: 'background',
     type: 'STATUS',
     phase,
-    bytesWritten,
-    elapsedMs: recorder?.elapsedMs() ?? 0,
+    bytesWritten: bytesTotal(),
+    elapsedMs: elapsedTotal(),
     audioPlaybackBlocked: graph ? !graph.running : false,
     micOn: graph?.micEnabled ?? false,
     micError,
     warning,
     attention,
+    openFiles: [...openFiles()],
+    part: current?.index ?? 1,
   });
 }
 
@@ -123,16 +151,17 @@ async function fail(code: ErrorCode, message: string): Promise<void> {
   console.error(code, message);
   showNotice(message, 'error');
   // Salvage only if we were recording and not already inside finish().
-  const salvage = recorder && phase !== 'starting' && !stopping;
+  const salvage = current && phase !== 'starting' && !stopping;
   phase = 'error';
   render();
   await send({ to: 'background', type: 'ERROR', code, message });
+  void logEvent('error', code, message);
   if (salvage && code !== 'WRITE_FAILED') {
     // Try to still save what was recorded.
     await finish().catch((e) => console.error('Salvage failed', e));
   } else {
     await teardown();
-    await sink?.closeOnly();
+    await current?.sink.closeOnly();
   }
   setTimeout(() => window.close(), 8000);
 }
@@ -142,30 +171,123 @@ async function teardown(): Promise<void> {
   await graph?.close().catch(() => undefined);
 }
 
-/** Stop recording, fix Duration, export the file, report DONE. */
+const exportTarget = (): ExportTarget => (saveDir ? { kind: 'directory', handle: saveDir } : { kind: 'downloads' });
+
+/** Stop a part's recorder, fix its Duration and export it. */
+async function closePart(part: Part): Promise<{ result: ExportResult; durationMs: number; durationFixed: boolean }> {
+  const { durationMs, durationFixed } = await part.recorder.stop();
+  const result = await part.sink.finalize(exportTarget());
+  await removePending(part.sink.fileName);
+  part.sink.terminate();
+  if (result.fallbackReason) void logEvent('warn', 'FOLDER_FALLBACK', `${result.fileName}：${result.fallbackReason}`);
+  return { result, durationMs, durationFixed };
+}
+
+async function openPart(index: number): Promise<Part> {
+  const name = segmentMs > 0 ? partFileName(baseFileName, index) : baseFileName;
+  const sink = new OpfsSink();
+  await sink.open(name);
+  await addPending(name, { title: tabTitle, startedAt: Date.now(), part: segmentMs > 0 ? index : undefined });
+  const part: Part = { index, sink, bytes: 0, recorder: undefined as unknown as TabRecorder };
+  part.recorder = new TabRecorder(recStream!, settings!, sink, {
+    onBytes: (total) => {
+      part.bytes = total;
+    },
+    onError: (err) => {
+      if (part === current) void fail('WRITE_FAILED', `寫入失敗：${err.message}`);
+      else void logEvent('error', 'WRITE_FAILED', `第 ${part.index} 段：${err.message}`);
+    },
+    onStall: (gap) => {
+      warning = `錄製中斷約 ${Math.round(gap / 1000)} 秒（系統休眠？），影片在該處會有跳躍`;
+      void logEvent('warn', 'STALL', warning);
+      void report();
+    },
+  });
+  return part;
+}
+
+/**
+ * Seamless segment switch: start the next file's recorder first, then stop
+ * the old one, so there is a few-ms overlap rather than a gap. The old part
+ * is exported in the background while recording continues.
+ */
+async function rotate(): Promise<void> {
+  if (!current || rotating || phase !== 'recording') return;
+  rotating = true;
+  const old = current;
+  try {
+    const next = await openPart(old.index + 1);
+    await next.recorder.start();
+    completedMs += old.recorder.elapsedMs();
+    completedBytes += old.bytes;
+    current = next;
+    exportingNames.add(old.sink.fileName);
+    const job = closePart(old)
+      .then(({ result }) => {
+        savedParts[old.index - 1] = result;
+        void send({ to: 'background', type: 'PART_SAVED', part: old.index, fileName: result.fileName, location: result.location, fallbackReason: result.fallbackReason });
+      })
+      .catch((e) => {
+        const message = `第 ${old.index} 段存檔失敗：${(e as Error).message}（內容仍保留，可到設定頁修復）`;
+        void logEvent('error', 'FINALIZE_FAILED', message);
+        void send({ to: 'background', type: 'PART_FAILED', part: old.index, message });
+      })
+      .finally(() => {
+        exportingNames.delete(old.sink.fileName);
+        exporting.delete(job);
+      });
+    exporting.add(job);
+  } catch (e) {
+    void logEvent('error', 'SEGMENT_FAILED', `無法切換到下一段：${(e as Error).message}，繼續錄在同一個檔案`);
+  } finally {
+    rotating = false;
+  }
+}
+
+/** Stop recording, fix Duration, export the file(s), report DONE. */
 function finish(): Promise<void> {
   stopping ??= (async () => {
-    if (!recorder || !sink) return;
+    if (!current) return;
     if (phase !== 'error') setPhase('stopping');
-    const { durationMs, durationFixed } = await recorder.stop();
-    await teardown();
-    const target: ExportTarget = saveDir ? { kind: 'directory', handle: saveDir } : { kind: 'downloads' };
-    let result: Awaited<ReturnType<OpfsSink['finalize']>>;
+    const last = current;
+    let closed: Awaited<ReturnType<typeof closePart>>;
     try {
-      result = await sink.finalize(target);
+      const { durationMs, durationFixed } = await last.recorder.stop();
+      await teardown();
+      await Promise.allSettled([...exporting]);
+      const result = await last.sink.finalize(exportTarget());
+      await removePending(last.sink.fileName);
+      closed = { result, durationMs, durationFixed };
     } catch (e) {
-      await fail('FINALIZE_FAILED', `存檔失敗：${(e as Error).message}。錄製內容仍保留在 extension 儲存空間。`);
+      await fail('FINALIZE_FAILED', `存檔失敗：${(e as Error).message}。錄製內容仍保留，可到設定頁「未完成的錄製」修復。`);
       return;
     }
-    await send({ to: 'background', type: 'DONE', ...result, durationMs, durationFixed });
+    const { result } = closed;
+    savedParts[last.index - 1] = result;
+    const totalMs = completedMs + closed.durationMs;
+    const totalBytes = completedBytes + result.bytes;
+    const fallbackReason = savedParts.find((p) => p?.fallbackReason)?.fallbackReason;
+    if (result.fallbackReason) void logEvent('warn', 'FOLDER_FALLBACK', `${result.fileName}：${result.fallbackReason}`);
+    await send({
+      to: 'background',
+      type: 'DONE',
+      ...result,
+      bytes: totalBytes,
+      durationMs: totalMs,
+      durationFixed: closed.durationFixed,
+      fallbackReason,
+      parts: last.index,
+    });
     phase = 'idle';
     render();
     showNotice(
-      result.fallbackReason
-        ? `無法存到資料夾（${result.fallbackReason}），已改存到下載資料夾：${result.fileName}`
-        : `已存到「${result.location}」：${result.fileName}`,
+      fallbackReason
+        ? `無法存到資料夾（${fallbackReason}），已改存到下載資料夾：${result.fileName}`
+        : last.index > 1
+          ? `已存到「${result.location}」：共 ${last.index} 個檔案`
+          : `已存到「${result.location}」：${result.fileName}`,
     );
-    sink.terminate();
+    last.sink.terminate();
     setTimeout(() => window.close(), 1500);
   })();
   return stopping;
@@ -194,7 +316,8 @@ async function applyMic(on: boolean, allowPrompt = false): Promise<void> {
 }
 
 function onCommand(msg: RecorderCommand): void {
-  if (msg.to !== 'recorder' || !recorder) return;
+  if (msg.to !== 'recorder' || !current) return;
+  const recorder = current.recorder;
   switch (msg.type) {
     case 'PAUSE':
       if (phase === 'recording') {
@@ -262,8 +385,12 @@ async function main(): Promise<void> {
     setTimeout(() => window.close(), 5000);
     return;
   }
-  const { streamId, tabTitle, settings } = init;
+  const { streamId } = init;
+  settings = init.settings;
+  tabTitle = init.tabTitle;
   micDeviceId = settings.micDeviceId;
+  const debug = (await chrome.storage.local.get('debugSegmentSeconds')).debugSegmentSeconds as number | undefined;
+  segmentMs = debug ? debug * 1000 : settings.segmentMinutes * 60_000;
   ui.target.textContent = tabTitle;
   ui.target.title = tabTitle;
 
@@ -290,7 +417,7 @@ async function main(): Promise<void> {
     await teardown();
     return fail('CAPTURE_FAILED', '擷取到的串流沒有影像軌');
   }
-  const recStream = new MediaStream([videoTrack, ...(audioTrack ? [audioTrack] : [])]);
+  recStream = new MediaStream([videoTrack, ...(audioTrack ? [audioTrack] : [])]);
   if (!audioOk) {
     showNotice('瀏覽器暫停了聲音回放：點這裡恢復課程聲音（錄音不受影響）', 'warn', async () => {
       if (await graph?.resume()) {
@@ -306,30 +433,18 @@ async function main(): Promise<void> {
     void report();
   };
 
-  const fileName = buildFileName(settings.fileNameTemplate, tabTitle, new Date());
-  sink = new OpfsSink();
+  baseFileName = buildFileName(settings.fileNameTemplate, tabTitle, new Date());
   try {
-    await sink.open(fileName);
+    current = await openPart(1);
   } catch (e) {
     await teardown();
     return fail('SINK_OPEN_FAILED', `無法建立暫存檔：${(e as Error).message}`);
   }
 
-  recorder = new TabRecorder(recStream, settings, sink, {
-    onBytes: (total) => {
-      bytesWritten = total;
-    },
-    onError: (err) => void fail('WRITE_FAILED', `寫入失敗：${err.message}`),
-    onStall: (gap) => {
-      warning = `錄製中斷約 ${Math.round(gap / 1000)} 秒（系統休眠？），影片在該處會有跳躍`;
-      void report();
-    },
-  });
-
   // Target tab closed or navigated away from capture → stop and save.
   videoTrack.addEventListener('ended', () => void finish());
 
-  await recorder.start();
+  await current.recorder.start();
   setPhase('recording');
   if (init.micOn) await applyMic(true);
 
@@ -337,6 +452,12 @@ async function main(): Promise<void> {
     render();
     if (phase === 'recording' || phase === 'paused') void report();
   }, STATUS_INTERVAL_MS);
+  if (segmentMs > 0) {
+    // Checked often so segments end close to the configured length.
+    setInterval(() => {
+      if (current && current.recorder.elapsedMs() >= segmentMs) void rotate();
+    }, 250);
+  }
   setInterval(() => {
     if (document.visibilityState !== 'visible') return;
     ui.level.style.width = `${Math.round((graph?.level() ?? 0) * 100)}%`;

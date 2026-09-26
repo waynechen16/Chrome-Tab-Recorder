@@ -56,9 +56,36 @@ export class OpfsSink implements Sink {
     return p;
   }
 
+  get fileName(): string {
+    return this.name;
+  }
+
+  get bytesWritten(): number {
+    return this.bytes;
+  }
+
   async open(fileName: string): Promise<void> {
     this.name = fileName;
     await this.call({ op: 'open', name: fileName });
+  }
+
+  /** Re-open an unfinished recording left in OPFS (crash recovery). */
+  static async adopt(fileName: string): Promise<OpfsSink> {
+    const sink = new OpfsSink();
+    sink.name = fileName;
+    try {
+      sink.bytes = await sink.call({ op: 'openExisting', name: fileName });
+    } catch (e) {
+      sink.terminate();
+      throw e;
+    }
+    return sink;
+  }
+
+  /** Delete the OPFS copy without exporting. */
+  static async discard(fileName: string): Promise<void> {
+    const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle('recordings');
+    await dir.removeEntry(fileName);
   }
 
   async write(chunk: Uint8Array): Promise<number> {

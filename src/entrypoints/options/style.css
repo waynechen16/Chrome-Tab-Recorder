@@ -30,3 +30,17 @@ select { padding: 8px; border-radius: 8px; border: 1px solid var(--line); backgr
 input[type="text"] { padding: 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--fg); font: inherit; }
 code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; background: var(--bg); padding: 1px 4px; border-radius: 4px; }
 .warn { color: #b26a00; }
+.card.attention { border-color: #f9a825; }
+.pending, .log { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.pending li { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px; border-radius: 8px; background: var(--bg); }
+.pending .info { flex: 1 1 260px; min-width: 0; }
+.pending .title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pending .status { flex-basis: 100%; font-size: 12px; }
+.log li { font-size: 12px; display: grid; grid-template-columns: auto auto 1fr; gap: 8px; }
+.log .lvl-error { color: var(--red); }
+.log .lvl-warn { color: #b26a00; }
+.row.between { justify-content: space-between; }
+button.small { padding: 4px 10px; font-size: 12px; }
+button.danger { color: var(--red); }
+.result { margin: 0; color: #2e7d32; }
+.result:empty { display: none; }

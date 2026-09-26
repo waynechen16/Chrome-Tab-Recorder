@@ -24,3 +24,8 @@ export function buildFileName(template: string, title: string, at: Date): string
     .replace(ILLEGAL, '_');
   return `${base || 'recording'}.webm`;
 }
+
+/** "name.webm" → "name_part2.webm" (auto-segmented recordings). */
+export function partFileName(name: string, part: number): string {
+  return name.replace(/(\.webm)?$/i, `_part${part}.webm`);
+}

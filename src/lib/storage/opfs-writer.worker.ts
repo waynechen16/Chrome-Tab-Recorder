@@ -26,6 +26,13 @@ async function handleRequest(req: WriterRequest): Promise<WriterResponseBody> {
       position = 0;
       return { ok: true, bytes: 0 };
     }
+    case 'openExisting': {
+      const dir = await recordingsDir();
+      const file = await dir.getFileHandle(req.name);
+      handle = await file.createSyncAccessHandle();
+      position = handle.getSize();
+      return { ok: true, bytes: position };
+    }
     case 'write': {
       if (!handle) throw new Error('Writer not open');
       const data = new Uint8Array(req.data);
