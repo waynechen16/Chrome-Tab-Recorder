@@ -53,6 +53,8 @@ const ui = {
   settings: $<HTMLButtonElement>('settings'),
   saveTo: $('saveTo'),
   pending: $<HTMLButtonElement>('pending'),
+  micVol: $<HTMLInputElement>('micVol'),
+  micVolLabel: $('micVolLabel'),
 };
 
 let state: RecordingState;
@@ -61,6 +63,7 @@ let micAtStart = false;
 let micPerm: MicPermission = 'unknown';
 let saveToText = '';
 let pendingCount = 0;
+let micVolTimer: number | undefined;
 
 /** Pages Chrome does not allow extensions to capture. */
 function unrecordableReason(tab?: chrome.tabs.Tab): string | null {
@@ -197,6 +200,16 @@ ui.micToggle.onchange = async () => {
   }
 };
 ui.openOptions.onclick = () => chrome.runtime.openOptionsPage();
+// Volume applies live while recording; the value is also saved for next time.
+ui.micVol.oninput = () => {
+  const gain = Number(ui.micVol.value) / 100;
+  ui.micVolLabel.textContent = `${ui.micVol.value}%`;
+  if (state.phase === 'recording' || state.phase === 'paused') {
+    void send({ to: 'background', type: 'SET_MIC_GAIN', gain });
+  }
+  clearTimeout(micVolTimer);
+  micVolTimer = window.setTimeout(() => void saveSettings({ micGain: gain }), 300);
+};
 ui.settings.onclick = () => chrome.runtime.openOptionsPage();
 ui.pending.onclick = () => chrome.tabs.create({ url: chrome.runtime.getURL('/options.html#recovery') });
 
@@ -226,6 +239,8 @@ async function init(): Promise<void> {
   [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
   const settings = await loadSettings();
   micAtStart = settings.micOnAtStart;
+  ui.micVol.value = String(Math.round(settings.micGain * 100));
+  ui.micVolLabel.textContent = `${ui.micVol.value}%`;
   saveToText = await describeSaveTarget(settings);
   pendingCount = (await listPending()).length;
   micPerm = await micPermission();

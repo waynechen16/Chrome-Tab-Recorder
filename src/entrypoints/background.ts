@@ -261,6 +261,14 @@ async function handle(msg: BackgroundMessage, sender: chrome.runtime.MessageSend
       return { ok: true } satisfies CommandResponse;
     }
 
+    case 'SET_MIC_GAIN': {
+      const s = await getState();
+      if (s.phase === 'recording' || s.phase === 'paused') {
+        await toRecorder({ to: 'recorder', type: 'SET_MIC_GAIN', gain: msg.gain });
+      }
+      return { ok: true } satisfies CommandResponse;
+    }
+
     case 'SHOW_RECORDER': {
       const s = await getState();
       if (s.recorderWindowId !== undefined) {

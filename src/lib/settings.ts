@@ -25,6 +25,8 @@ export interface Settings {
   micOnAtStart: boolean;
   /** Preferred mic; empty = system default. */
   micDeviceId: string;
+  /** Mic volume multiplier (1 = unchanged). A limiter prevents clipping when boosted. */
+  micGain: number;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -40,7 +42,11 @@ export const DEFAULT_SETTINGS: Settings = {
   directoryName: '',
   micOnAtStart: false,
   micDeviceId: '',
+  micGain: 1.5,
 };
+
+export const MIC_GAIN_MIN = 0.5;
+export const MIC_GAIN_MAX = 4;
 
 export const RESOLUTION_BOX: Record<Exclude<Resolution, 'tab'>, { width: number; height: number }> = {
   '2160p': { width: 3840, height: 2160 },
@@ -83,6 +89,7 @@ export function normalizeSettings(stored: Record<string, unknown> | undefined): 
   pick('directoryName', str);
   pick('micOnAtStart', bool);
   pick('micDeviceId', str);
+  pick('micGain', (v) => typeof v === 'number' && v >= MIC_GAIN_MIN && v <= MIC_GAIN_MAX);
   return s;
 }
 

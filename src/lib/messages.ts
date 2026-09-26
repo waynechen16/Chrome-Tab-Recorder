@@ -26,6 +26,7 @@ export type PopupCommand =
   | { to: 'background'; type: 'RESUME' }
   | { to: 'background'; type: 'SHOW_RECORDER' }
   | { to: 'background'; type: 'SET_MIC'; enabled: boolean }
+  | { to: 'background'; type: 'SET_MIC_GAIN'; gain: number }
   | { to: 'background'; type: 'ACK_ERROR' };
 
 /** background → recorder */
@@ -33,7 +34,8 @@ export type RecorderCommand =
   | { to: 'recorder'; type: 'STOP' }
   | { to: 'recorder'; type: 'PAUSE' }
   | { to: 'recorder'; type: 'RESUME' }
-  | { to: 'recorder'; type: 'SET_MIC'; enabled: boolean };
+  | { to: 'recorder'; type: 'SET_MIC'; enabled: boolean }
+  | { to: 'recorder'; type: 'SET_MIC_GAIN'; gain: number };
 
 /** recorder → background */
 export type RecorderEvent =

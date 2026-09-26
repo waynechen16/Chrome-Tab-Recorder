@@ -4,14 +4,14 @@
  *   tab audio ─► tabGain ─┬─► dest (MediaStreamDestination) ─► MediaRecorder
  *                         ├─► ctx.destination (speakers — tabCapture mutes the tab)
  *                         └─► tabAnalyser (level meter)
- *   mic (lazy) ─► micGain (0/1) ─► dest
- *              └► micAnalyser (level meter, pre-gain)
+ *   mic (lazy) ─► micVolume (0.5–4×) ─┬─► micGain (0/1) ─► micLimiter ─► dest
+ *                                     └─► micAnalyser (level meter, post-volume)
  *
  * MediaRecorder always records the same `dest` track, so turning the mic on
  * or off never touches the recorder. The mic is never routed to the speakers.
  * Once acquired, the mic stays open until the recording ends: switching off
  * only fades the gain to 0, so switching on again is instant and never
- * re-prompts.
+ * re-prompts. The limiter keeps a boosted mic from clipping.
  */
 import { micConstraints } from './mic';
 
@@ -19,6 +19,8 @@ export class AudioGraph {
   private ctx = new AudioContext({ sampleRate: 48000, latencyHint: 'playback' });
   private dest = this.ctx.createMediaStreamDestination();
   private micGain = this.ctx.createGain();
+  private micVolume = this.ctx.createGain();
+  private micLimiter = this.ctx.createDynamicsCompressor();
   private micStream?: MediaStream;
   private micSource?: MediaStreamAudioSourceNode;
   private readonly tabAudio?: MediaStreamTrack;
@@ -43,7 +45,16 @@ export class AudioGraph {
       tabGain.connect(this.tabAnalyser);
     }
     this.micGain.gain.value = 0;
-    this.micGain.connect(this.dest);
+    // Limiter: transparent for normal speech, catches peaks when the volume is boosted.
+    this.micLimiter.threshold.value = -6;
+    this.micLimiter.knee.value = 0;
+    this.micLimiter.ratio.value = 20;
+    this.micLimiter.attack.value = 0.003;
+    this.micLimiter.release.value = 0.25;
+    this.micVolume.connect(this.micGain);
+    this.micVolume.connect(this.micAnalyser);
+    this.micGain.connect(this.micLimiter);
+    this.micLimiter.connect(this.dest);
     this.mixing = false;
   }
 
@@ -123,12 +134,17 @@ export class AudioGraph {
       });
       this.micStream = stream;
       this.micSource = this.ctx.createMediaStreamSource(stream);
-      this.micSource.connect(this.micGain);
-      this.micSource.connect(this.micAnalyser);
+      this.micSource.connect(this.micVolume);
     }
     this.micOn = on;
     // 20 ms fade avoids clicks.
     this.micGain.gain.setTargetAtTime(on ? 1 : 0, this.ctx.currentTime, 0.02);
+  }
+
+  /** Mic volume multiplier; applies immediately (short ramp to avoid clicks). */
+  setMicVolume(gain: number): void {
+    const g = Math.min(4, Math.max(0.5, gain));
+    this.micVolume.gain.setTargetAtTime(g, this.ctx.currentTime, 0.03);
   }
 
   async close(): Promise<void> {

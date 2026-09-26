@@ -53,3 +53,12 @@ describe('captureSize', () => {
     expect(captureSize({ resolution: 'tab' }, undefined, 2)).toEqual({ width: 1920, height: 1080 });
   });
 });
+
+describe('micGain setting', () => {
+  it('defaults to 150% and rejects out-of-range values', () => {
+    expect(normalizeSettings(undefined).micGain).toBe(1.5);
+    expect(normalizeSettings({ micGain: 2.5 }).micGain).toBe(2.5);
+    expect(normalizeSettings({ micGain: 9 }).micGain).toBe(1.5);
+    expect(normalizeSettings({ micGain: 0.1 }).micGain).toBe(1.5);
+  });
+});

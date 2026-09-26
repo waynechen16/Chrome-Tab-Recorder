@@ -395,6 +395,9 @@ function onCommand(msg: RecorderCommand): void {
     case 'SET_MIC':
       if (phase === 'recording' || phase === 'paused') void applyMic(msg.enabled);
       break;
+    case 'SET_MIC_GAIN':
+      graph?.setMicVolume(msg.gain);
+      break;
   }
 }
 
@@ -485,6 +488,7 @@ async function main(): Promise<void> {
       }
     });
   }
+  graph.setMicVolume(settings.micGain);
   graph.onStateChange(() => void report());
   graph.onMicLost = () => {
     micError = '麥克風裝置已中斷連線，已自動關閉。重新接上後可再打開。';

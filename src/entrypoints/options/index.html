@@ -172,6 +172,11 @@
             <option value="">系統預設</option>
           </select>
         </label>
+        <label class="field">
+          <span>麥克風音量：<strong id="micGainLabel">150%</strong>（錄製中也可在工具列視窗調整）</span>
+          <input id="micGain" type="range" min="50" max="400" step="10" />
+        </label>
+        <p class="muted small">放大音量時會自動限制峰值，避免破音。測試時音量條反映的是調整後的音量；說話時大約落在一半到四分之三最理想。</p>
         <label class="check">
           <input data-key="micOnAtStart" type="checkbox" />
           <span>開始錄製時預設混入麥克風（也可在工具列視窗裡切換）</span>

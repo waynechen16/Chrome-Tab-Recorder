@@ -33,6 +33,8 @@ const ui = {
   testArea: $('testArea'),
   level: $('level'),
   device: $<HTMLSelectElement>('device'),
+  micGain: $<HTMLInputElement>('micGain'),
+  micGainLabel: $('micGainLabel'),
   reset: $<HTMLButtonElement>('reset'),
   recovery: $('recovery'),
   pendingList: $('pendingList'),
@@ -107,6 +109,10 @@ function renderControls(): void {
 }
 
 function renderDerived(): void {
+  if (document.activeElement !== ui.micGain) {
+    ui.micGain.value = String(Math.round(settings.micGain * 100));
+    ui.micGainLabel.textContent = `${ui.micGain.value}%`;
+  }
   const gbPerHour = ((settings.videoBitsPerSecond + settings.audioBitsPerSecond) / 8) * 3600 / 1e9;
   ui.estimate.textContent = `預估檔案大小：每小時約 ${gbPerHour.toFixed(1)} GB（實際大小依畫面變化而定，投影片為主時通常更小）。`;
   ui.preview.textContent = buildFileName(settings.fileNameTemplate, 'Meet – 線上課程', new Date());
@@ -167,6 +173,7 @@ const PERM_LABEL: Record<MicPermission, [string, string]> = {
 };
 
 let testStream: MediaStream | undefined;
+let testVolume: GainNode | undefined;
 let testCtx: AudioContext | undefined;
 let meterTimer: number | undefined;
 
@@ -214,7 +221,11 @@ async function startTest(): Promise<void> {
   testCtx = new AudioContext();
   const analyser = testCtx.createAnalyser();
   analyser.fftSize = 1024;
-  testCtx.createMediaStreamSource(testStream).connect(analyser);
+  // Same volume as the recording, so the meter shows what will be recorded.
+  testVolume = testCtx.createGain();
+  testVolume.gain.value = settings.micGain;
+  testCtx.createMediaStreamSource(testStream).connect(testVolume);
+  testVolume.connect(analyser);
   const buf = new Float32Array(analyser.fftSize);
   meterTimer = window.setInterval(() => {
     analyser.getFloatTimeDomainData(buf);
@@ -227,6 +238,14 @@ async function startTest(): Promise<void> {
 }
 
 ui.test.onclick = () => void startTest();
+let gainTimer: number | undefined;
+ui.micGain.oninput = () => {
+  const gain = Number(ui.micGain.value) / 100;
+  ui.micGainLabel.textContent = `${ui.micGain.value}%`;
+  if (testVolume && testCtx) testVolume.gain.setTargetAtTime(gain, testCtx.currentTime, 0.03);
+  clearTimeout(gainTimer);
+  gainTimer = window.setTimeout(() => void save({ micGain: gain }), 300);
+};
 ui.stopTest.onclick = stopTest;
 ui.device.onchange = async () => {
   await save({ micDeviceId: ui.device.value });
