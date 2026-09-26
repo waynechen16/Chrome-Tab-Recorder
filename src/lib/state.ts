@@ -11,6 +11,9 @@ export interface LastRecording {
   durationMs: number;
   finishedAt: number;
   durationFixed: boolean;
+  savedTo?: 'downloads' | 'directory';
+  location?: string;
+  fallbackReason?: string;
 }
 
 export interface RecordingState {
@@ -28,6 +31,7 @@ export interface RecordingState {
   micOn: boolean;
   micError?: string;
   warning?: string;
+  attention?: string;
   lastError?: string;
   lastRecording?: LastRecording;
 }

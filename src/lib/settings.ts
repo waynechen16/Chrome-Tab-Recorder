@@ -1,9 +1,13 @@
-/** Recording settings. M1 uses fixed defaults; the Options page arrives in M3. */
+/** User settings, stored in chrome.storage.local and edited on the Options page. */
+
+export type Resolution = 'tab' | '2160p' | '1440p' | '1080p' | '720p';
+export type SaveLocation = 'downloads' | 'directory';
+
 export interface Settings {
-  maxWidth: number;
-  maxHeight: number;
-  fps: number;
-  /** Preferred video codec; falls back to VP8 when unsupported. */
+  /** Output size limit; 'tab' follows the captured tab's own size (no upscaling). */
+  resolution: Resolution;
+  fps: 15 | 24 | 30 | 60;
+  /** Preferred video codec; falls back to the other one when unsupported. */
   videoCodec: 'vp9' | 'vp8';
   videoBitsPerSecond: number;
   audioBitsPerSecond: number;
@@ -11,6 +15,10 @@ export interface Settings {
   autoMinimize: boolean;
   /** Tokens: {title} {date} {time}. `.webm` is appended. */
   fileNameTemplate: string;
+  /** Where finished recordings go. 'directory' uses the folder picked on the Options page. */
+  saveLocation: SaveLocation;
+  /** Display name of the picked folder (the handle itself lives in IndexedDB). */
+  directoryName: string;
   /** Initial mic state when a recording starts (the popup toggle remembers it). */
   micOnAtStart: boolean;
   /** Preferred mic; empty = system default. */
@@ -18,27 +26,76 @@ export interface Settings {
 }
 
 export const DEFAULT_SETTINGS: Settings = {
-  maxWidth: 1920,
-  maxHeight: 1080,
+  resolution: '1080p',
   fps: 30,
   videoCodec: 'vp9',
   videoBitsPerSecond: 4_000_000,
   audioBitsPerSecond: 128_000,
   autoMinimize: true,
   fileNameTemplate: '{title}_{date}_{time}',
+  saveLocation: 'downloads',
+  directoryName: '',
   micOnAtStart: false,
   micDeviceId: '',
 };
 
+export const RESOLUTION_BOX: Record<Exclude<Resolution, 'tab'>, { width: number; height: number }> = {
+  '2160p': { width: 3840, height: 2160 },
+  '1440p': { width: 2560, height: 1440 },
+  '1080p': { width: 1920, height: 1080 },
+  '720p': { width: 1280, height: 720 },
+};
+
+export const CHOICES = {
+  resolution: ['tab', '2160p', '1440p', '1080p', '720p'] as Resolution[],
+  fps: [15, 24, 30, 60] as Settings['fps'][],
+  videoCodec: ['vp9', 'vp8'] as Settings['videoCodec'][],
+  videoBitsPerSecond: [2_000_000, 4_000_000, 6_000_000, 8_000_000, 12_000_000],
+  audioBitsPerSecond: [96_000, 128_000, 192_000],
+};
+
+/**
+ * Merge stored values over defaults, dropping anything invalid (older
+ * versions stored different keys, and storage can be edited by hand).
+ */
+export function normalizeSettings(stored: Record<string, unknown> | undefined): Settings {
+  const s: Settings = { ...DEFAULT_SETTINGS };
+  if (!stored) return s;
+  const pick = <K extends keyof Settings>(key: K, ok: (v: unknown) => boolean) => {
+    if (ok(stored[key])) s[key] = stored[key] as Settings[K];
+  };
+  const oneOf = (list: readonly unknown[]) => (v: unknown) => list.includes(v);
+  const bool = (v: unknown) => typeof v === 'boolean';
+  const str = (v: unknown) => typeof v === 'string';
+  pick('resolution', oneOf(CHOICES.resolution));
+  pick('fps', oneOf(CHOICES.fps));
+  pick('videoCodec', oneOf(CHOICES.videoCodec));
+  pick('videoBitsPerSecond', (v) => typeof v === 'number' && v >= 500_000 && v <= 50_000_000);
+  pick('audioBitsPerSecond', (v) => typeof v === 'number' && v >= 32_000 && v <= 512_000);
+  pick('autoMinimize', bool);
+  pick('fileNameTemplate', (v) => str(v) && (v as string).trim().length > 0);
+  pick('saveLocation', oneOf(['downloads', 'directory']));
+  pick('directoryName', str);
+  pick('micOnAtStart', bool);
+  pick('micDeviceId', str);
+  return s;
+}
+
 const KEY = 'settings';
 
 export async function loadSettings(): Promise<Settings> {
-  const stored = (await chrome.storage.local.get(KEY))[KEY] as Partial<Settings> | undefined;
-  return { ...DEFAULT_SETTINGS, ...stored };
+  const stored = (await chrome.storage.local.get(KEY))[KEY] as Record<string, unknown> | undefined;
+  return normalizeSettings(stored);
 }
 
 export async function saveSettings(patch: Partial<Settings>): Promise<Settings> {
-  const next = { ...(await loadSettings()), ...patch };
+  const next = normalizeSettings({ ...(await loadSettings()), ...patch });
+  await chrome.storage.local.set({ [KEY]: next });
+  return next;
+}
+
+export async function resetSettings(keep: Partial<Settings> = {}): Promise<Settings> {
+  const next = normalizeSettings({ ...DEFAULT_SETTINGS, ...keep });
   await chrome.storage.local.set({ [KEY]: next });
   return next;
 }

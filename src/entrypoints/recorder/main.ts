@@ -3,14 +3,15 @@
  * Opened by the service worker, unfocused, then auto-minimised.
  */
 import { AudioGraph } from '@/lib/audio-graph';
-import { getTabStream } from '@/lib/capture';
+import { captureSize, getTabStream } from '@/lib/capture';
 import { buildFileName } from '@/lib/filename';
 import { FAVICON, TITLE_PREFIX } from '@/lib/indicator';
 import { micErrorMessage, micPermission } from '@/lib/mic';
 import { send, type ErrorCode, type InitResponse, type Phase, type RecorderCommand } from '@/lib/messages';
 import { TabRecorder } from '@/lib/recorder';
 import { formatBytes, formatDuration } from '@/lib/state';
-import { OpfsSink } from '@/lib/storage/sink';
+import { getSaveDirectory, requestSaveDirectoryPermission, saveDirectoryPermission } from '@/lib/storage/handle-store';
+import { OpfsSink, type ExportTarget } from '@/lib/storage/sink';
 
 const MIN_FREE_BYTES = 500 * 1024 ** 2;
 const WARN_FREE_BYTES = 2 * 1024 ** 3;
@@ -31,6 +32,7 @@ const ui = {
   mic: $<HTMLButtonElement>('mic'),
   micLevel: $('micLevel'),
   micNote: $('micNote'),
+  folderNote: $('folderNote'),
   favicon: $<HTMLLinkElement>('favicon'),
 };
 
@@ -44,6 +46,8 @@ let sink: OpfsSink | undefined;
 let stopping: Promise<void> | undefined;
 let micError: string | undefined;
 let micDeviceId = '';
+let saveDir: FileSystemDirectoryHandle | undefined;
+let attention: string | undefined;
 
 function showNotice(text: string, kind: 'warn' | 'error' = 'warn', onClick?: () => void): void {
   ui.notice.hidden = false;
@@ -105,6 +109,7 @@ async function report(): Promise<void> {
     micOn: graph?.micEnabled ?? false,
     micError,
     warning,
+    attention,
   });
 }
 
@@ -144,9 +149,10 @@ function finish(): Promise<void> {
     if (phase !== 'error') setPhase('stopping');
     const { durationMs, durationFixed } = await recorder.stop();
     await teardown();
-    let result: { fileName: string; bytes: number };
+    const target: ExportTarget = saveDir ? { kind: 'directory', handle: saveDir } : { kind: 'downloads' };
+    let result: Awaited<ReturnType<OpfsSink['finalize']>>;
     try {
-      result = await sink.finalize();
+      result = await sink.finalize(target);
     } catch (e) {
       await fail('FINALIZE_FAILED', `存檔失敗：${(e as Error).message}。錄製內容仍保留在 extension 儲存空間。`);
       return;
@@ -154,7 +160,11 @@ function finish(): Promise<void> {
     await send({ to: 'background', type: 'DONE', ...result, durationMs, durationFixed });
     phase = 'idle';
     render();
-    showNotice(`已存檔：${result.fileName}`);
+    showNotice(
+      result.fallbackReason
+        ? `無法存到資料夾（${result.fallbackReason}），已改存到下載資料夾：${result.fileName}`
+        : `已存到「${result.location}」：${result.fileName}`,
+    );
     sink.terminate();
     setTimeout(() => window.close(), 1500);
   })();
@@ -207,6 +217,32 @@ function onCommand(msg: RecorderCommand): void {
   }
 }
 
+/**
+ * If the user chose a save folder, make sure we can write to it. Permission
+ * can lapse after a browser restart; re-granting needs a click in a visible
+ * page, so we ask here (the window stays un-minimised until resolved).
+ */
+async function prepareSaveFolder(location: string): Promise<void> {
+  if (location !== 'directory') return;
+  saveDir = await getSaveDirectory();
+  if (!saveDir) {
+    warning = '找不到設定的儲存資料夾，這次會存到下載資料夾。請到設定頁重新選擇。';
+    return;
+  }
+  if ((await saveDirectoryPermission(saveDir)) === 'granted') return;
+  const dir = saveDir;
+  attention = `需要重新授權寫入資料夾「${dir.name}」`;
+  ui.folderNote.hidden = false;
+  ui.folderNote.textContent = `點這裡授權寫入「${dir.name}」（不授權的話，錄影會改存到下載資料夾）`;
+  ui.folderNote.onclick = async () => {
+    if ((await requestSaveDirectoryPermission(dir)) === 'granted') {
+      attention = undefined;
+      ui.folderNote.hidden = true;
+      void report();
+    }
+  };
+}
+
 async function checkDisk(): Promise<void> {
   const { quota = 0, usage = 0 } = await navigator.storage.estimate();
   const free = quota - usage;
@@ -237,8 +273,11 @@ async function main(): Promise<void> {
     return fail('LOW_DISK', (e as Error).message);
   }
 
+  await prepareSaveFolder(settings.saveLocation);
+
   try {
-    stream = await getTabStream(streamId, settings);
+    const size = captureSize(settings, init.tabSize, window.devicePixelRatio || 1);
+    stream = await getTabStream(streamId, size, settings.fps);
   } catch (e) {
     return fail('CAPTURE_FAILED', `無法擷取分頁：${(e as Error).message}`);
   }

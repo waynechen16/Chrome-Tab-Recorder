@@ -136,11 +136,14 @@ async function handle(msg: BackgroundMessage, sender: chrome.runtime.MessageSend
       try {
         // No consumerTabId: the id is then usable by any page of this extension.
         const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: s.targetTabId });
+        const tab = await chrome.tabs.get(s.targetTabId).catch(() => undefined);
+        const tabSize = tab?.width && tab?.height ? { width: tab.width, height: tab.height } : undefined;
         return {
           ok: true,
           streamId,
           tabId: s.targetTabId,
           tabTitle: s.targetTitle ?? '',
+          tabSize,
           micOn: s.micOn,
           settings: await loadSettings(),
         } satisfies InitResponse;
@@ -167,15 +170,19 @@ async function handle(msg: BackgroundMessage, sender: chrome.runtime.MessageSend
         micOn: msg.micOn,
         micError: msg.micError,
         warning: msg.warning,
+        attention: msg.attention,
       });
 
       if (msg.phase !== s.phase && (msg.phase === 'recording' || msg.phase === 'paused')) {
         await applyIndicators(msg.phase, s.targetTabId);
       }
-      // First time we reach "recording": get the window out of the way.
-      if (s.phase === 'starting' && msg.phase === 'recording') {
+      // First time we reach "recording" — or the user just resolved what needed
+      // their attention in the window — get the window out of the way.
+      const resolved = !!s.attention && !msg.attention && (msg.phase === 'recording' || msg.phase === 'paused');
+      if ((s.phase === 'starting' && msg.phase === 'recording') || resolved) {
         const settings = await loadSettings();
-        if (settings.autoMinimize && !msg.audioPlaybackBlocked && s.recorderWindowId !== undefined) {
+        const needsUser = msg.audioPlaybackBlocked || !!msg.attention;
+        if (settings.autoMinimize && !needsUser && s.recorderWindowId !== undefined) {
           await chrome.windows.update(s.recorderWindowId, { state: 'minimized' }).catch(() => undefined);
         }
       }
@@ -192,12 +199,15 @@ async function handle(msg: BackgroundMessage, sender: chrome.runtime.MessageSend
           durationMs: msg.durationMs,
           finishedAt: Date.now(),
           durationFixed: msg.durationFixed,
+          savedTo: msg.savedTo,
+          location: msg.location,
+          fallbackReason: msg.fallbackReason,
         },
       });
       chrome.notifications.create({
         type: 'basic',
         iconUrl: chrome.runtime.getURL('/icon/128.png'),
-        title: '錄製已存檔',
+        title: msg.fallbackReason ? '錄製已存檔（改存到下載資料夾）' : `錄製已存到「${msg.location}」`,
         message: `${msg.fileName}\n${formatDuration(msg.durationMs)} · ${formatBytes(msg.bytes)}`,
       });
       return;

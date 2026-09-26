@@ -50,15 +50,36 @@ export type RecorderEvent =
       /** Why the mic is off although the user asked for it (cleared on success). */
       micError?: string;
       warning?: string;
+      /** Something the user must act on in the recorder window (keeps it un-minimised). */
+      attention?: string;
     }
-  | { to: 'background'; type: 'DONE'; fileName: string; bytes: number; durationMs: number; durationFixed: boolean }
+  | {
+      to: 'background';
+      type: 'DONE';
+      fileName: string;
+      bytes: number;
+      durationMs: number;
+      durationFixed: boolean;
+      savedTo: 'downloads' | 'directory';
+      location: string;
+      fallbackReason?: string;
+    }
   | { to: 'background'; type: 'ERROR'; code: ErrorCode; message: string };
 
 export type BackgroundMessage = PopupCommand | RecorderEvent;
 
 /** Response to RECORDER_READY: everything the recorder needs to start. */
 export type InitResponse =
-  | { ok: true; streamId: string; tabId: number; tabTitle: string; micOn: boolean; settings: Settings }
+  | {
+      ok: true;
+      streamId: string;
+      tabId: number;
+      tabTitle: string;
+      /** Tab viewport size in CSS pixels, for the 'tab' resolution setting. */
+      tabSize?: { width: number; height: number };
+      micOn: boolean;
+      settings: Settings;
+    }
   | { ok: false; code: ErrorCode; message: string };
 
 export type CommandResponse = { ok: true } | { ok: false; code: ErrorCode; message: string };

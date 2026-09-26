@@ -9,14 +9,117 @@
   </head>
   <body>
     <main>
-      <h1>Tab Recorder 設定</h1>
+      <header class="top">
+        <h1>Tab Recorder 設定</h1>
+        <span id="saved" class="saved" hidden>已儲存</span>
+      </header>
+      <p class="muted">變更會自動儲存，並在下一次開始錄製時生效。</p>
 
+      <!-- Quality -->
+      <section class="card">
+        <h2>錄影品質</h2>
+        <div class="grid">
+          <label class="field">
+            <span>解析度上限</span>
+            <select data-key="resolution">
+              <option value="tab">跟隨分頁（不放大，Retina 螢幕較清晰）</option>
+              <option value="2160p">4K（3840×2160）</option>
+              <option value="1440p">1440p（2560×1440）</option>
+              <option value="1080p">1080p（1920×1080）</option>
+              <option value="720p">720p（1280×720）</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>幀率</span>
+            <select data-key="fps" data-type="number">
+              <option value="15">15 fps（投影片為主，最省 CPU）</option>
+              <option value="24">24 fps</option>
+              <option value="30">30 fps</option>
+              <option value="60">60 fps（動態畫面，CPU 負擔高）</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>影像編碼</span>
+            <select data-key="videoCodec">
+              <option value="vp9">VP9（檔案較小，CPU 較高）</option>
+              <option value="vp8">VP8（CPU 較低，檔案約大 1.5 倍）</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>影像位元率</span>
+            <select data-key="videoBitsPerSecond" data-type="number">
+              <option value="2000000">2 Mbps</option>
+              <option value="4000000">4 Mbps</option>
+              <option value="6000000">6 Mbps</option>
+              <option value="8000000">8 Mbps</option>
+              <option value="12000000">12 Mbps</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>音訊位元率（Opus）</span>
+            <select data-key="audioBitsPerSecond" data-type="number">
+              <option value="96000">96 kbps</option>
+              <option value="128000">128 kbps</option>
+              <option value="192000">192 kbps</option>
+            </select>
+          </label>
+        </div>
+        <p id="estimate" class="muted small"></p>
+      </section>
+
+      <!-- Save location -->
+      <section class="card">
+        <h2>儲存位置</h2>
+        <label class="check">
+          <input type="radio" name="saveLocation" value="downloads" />
+          <span>Chrome 的下載資料夾</span>
+        </label>
+        <label class="check">
+          <input type="radio" name="saveLocation" value="directory" />
+          <span>指定資料夾</span>
+        </label>
+        <div id="dirBox" class="dir" hidden>
+          <div class="row">
+            <span>資料夾：</span>
+            <strong id="dirName">尚未選擇</strong>
+            <span id="dirPerm" class="small"></span>
+          </div>
+          <div class="row">
+            <button id="pickDir" class="primary">選擇資料夾…</button>
+            <button id="grantDir" hidden>重新授權</button>
+          </div>
+          <p class="muted small">
+            Chrome 重新啟動後可能需要重新授權；錄製開始時若尚未授權，錄製視窗會提示你點一下授權。若無法寫入資料夾，錄影會自動改存到下載資料夾，不會遺失。
+          </p>
+        </div>
+      </section>
+
+      <!-- File name -->
+      <section class="card">
+        <h2>檔名規則</h2>
+        <label class="field">
+          <span>樣板（自動加上 .webm）</span>
+          <input id="template" data-key="fileNameTemplate" type="text" spellcheck="false" />
+        </label>
+        <p class="muted small">可用：<code>{title}</code> 分頁標題、<code>{date}</code> 日期（2026-09-26）、<code>{time}</code> 時間（143005）。</p>
+        <p class="small">預覽：<code id="preview"></code></p>
+      </section>
+
+      <!-- Recorder window -->
+      <section class="card">
+        <h2>錄製視窗</h2>
+        <label class="check">
+          <input data-key="autoMinimize" type="checkbox" />
+          <span>錄製開始後自動最小化（需要你操作時，例如授權，會保持開啟）</span>
+        </label>
+      </section>
+
+      <!-- Microphone -->
       <section class="card">
         <h2>麥克風</h2>
         <p class="muted">
           錄製中可隨時把你自己的聲音混進錄音。第一次使用前，請在這裡授權一次；授權後錄製中切換麥克風不會再跳出任何提示。
         </p>
-
         <div class="row">
           <span>授權狀態：</span>
           <strong id="permState">檢查中…</strong>
@@ -24,39 +127,33 @@
         <p id="deniedHelp" class="notice error" hidden>
           麥克風已被封鎖。請點網址列左側的圖示 →「網站設定」，把「麥克風」改為「允許」，再回到這頁重新整理。
         </p>
-
         <div class="row">
           <button id="test" class="primary">授權並測試麥克風</button>
           <button id="stopTest" hidden>停止測試</button>
         </div>
-
         <div id="testArea" class="test" hidden>
           <div class="meter"><div id="level"></div></div>
           <p class="muted small">對著麥克風說話，音量條應該會跳動。</p>
         </div>
-
         <label class="field">
           <span>使用的麥克風</span>
           <select id="device">
             <option value="">系統預設</option>
           </select>
         </label>
-
         <label class="check">
-          <input id="micOnAtStart" type="checkbox" />
+          <input data-key="micOnAtStart" type="checkbox" />
           <span>開始錄製時預設混入麥克風（也可在工具列視窗裡切換）</span>
         </label>
-
         <p class="muted small">建議戴耳機錄製：用喇叭時，課程聲音可能經由麥克風被重複錄進去。</p>
-        <p id="saved" class="saved" hidden>已儲存</p>
       </section>
 
-      <section class="card muted">
-        <h2>其他設定</h2>
-        <p>解析度、幀率、位元率、儲存資料夾與檔名規則將在下一版（M3）加入。</p>
-      </section>
+      <div class="row">
+        <button id="reset">恢復預設值</button>
+        <span class="muted small">（不影響儲存資料夾與麥克風選擇）</span>
+      </div>
 
-      <p class="muted small">錄製他人參與的會議或課程前，請先取得同意。</p>
+      <p class="muted small">錄製他人參與的會議或課程前，請先取得同意。 ・ Tab Recorder <span id="version"></span></p>
     </main>
     <script type="module" src="./main.ts"></script>
   </body>

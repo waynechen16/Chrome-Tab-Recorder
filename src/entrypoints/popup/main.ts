@@ -1,7 +1,25 @@
 /** Popup — only user gestures and state display; holds no media objects. */
 import { send, type CommandResponse, type PopupCommand } from '@/lib/messages';
 import { micPermission, type MicPermission } from '@/lib/mic';
-import { loadSettings, saveSettings } from '@/lib/settings';
+import { loadSettings, saveSettings, type Settings } from '@/lib/settings';
+import { saveDirectoryPermission } from '@/lib/storage/handle-store';
+
+const RES_LABEL: Record<Settings['resolution'], string> = {
+  tab: '跟隨分頁',
+  '2160p': '4K',
+  '1440p': '1440p',
+  '1080p': '1080p',
+  '720p': '720p',
+};
+
+/** One line under the start button: where the file goes and at what quality. */
+async function describeSaveTarget(s: Settings): Promise<string> {
+  const quality = `${RES_LABEL[s.resolution]} · ${s.fps} fps · ${s.videoBitsPerSecond / 1_000_000} Mbps`;
+  if (s.saveLocation !== 'directory') return `存到：下載資料夾 ｜ ${quality}`;
+  const perm = await saveDirectoryPermission();
+  const note = perm === 'granted' ? '' : perm === 'missing' ? '（找不到資料夾，將存到下載資料夾）' : '（開始錄製時需重新授權）';
+  return `存到：「${s.directoryName || '指定資料夾'}」${note} ｜ ${quality}`;
+}
 import { elapsedMs, formatBytes, formatDuration, getState, onStateChanged, type RecordingState } from '@/lib/state';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -32,12 +50,14 @@ const ui = {
   micHint: $('micHint'),
   openOptions: $<HTMLButtonElement>('openOptions'),
   settings: $<HTMLButtonElement>('settings'),
+  saveTo: $('saveTo'),
 };
 
 let state: RecordingState;
 let activeTab: chrome.tabs.Tab | undefined;
 let micAtStart = false;
 let micPerm: MicPermission = 'unknown';
+let saveToText = '';
 
 /** Pages Chrome does not allow extensions to capture. */
 function unrecordableReason(tab?: chrome.tabs.Tab): string | null {
@@ -97,6 +117,7 @@ function render(): void {
       ui.start.disabled = !!reason;
       ui.unrecordable.hidden = !reason;
       ui.unrecordable.textContent = reason ?? '';
+      ui.saveTo.textContent = saveToText;
       showNotice(undefined);
       break;
     }
@@ -107,7 +128,9 @@ function render(): void {
       ui.recTitle.textContent = '';
       ui.pause.textContent = s.phase === 'paused' ? '繼續' : '暫停';
       ui.gotoTab.hidden = s.targetTabId === activeTab?.id;
-      if (s.audioPlaybackBlocked) {
+      if (s.attention) {
+        showNotice(`${s.attention}：請按「顯示錄製視窗」，在視窗裡點提示授權。`);
+      } else if (s.audioPlaybackBlocked) {
         showNotice('瀏覽器暫停了課程聲音的回放（錄音不受影響）。請按「顯示錄製視窗」，在視窗裡點一下提示即可恢復。');
       } else {
         showNotice(s.warning);
@@ -131,7 +154,8 @@ function render(): void {
   ui.last.hidden = !last || s.phase !== 'idle';
   if (last) {
     ui.last.textContent =
-      `上次存檔：${last.fileName}（${formatDuration(last.durationMs)}，${formatBytes(last.bytes)}）` +
+      `上次存檔：${last.location ? `「${last.location}」／` : ''}${last.fileName}（${formatDuration(last.durationMs)}，${formatBytes(last.bytes)}）` +
+      (last.fallbackReason ? ` — 無法存到指定資料夾（${last.fallbackReason}），已改存到下載資料夾` : '') +
       (last.durationFixed ? '' : ' — 注意：時長資訊未寫入');
   }
 }
@@ -190,7 +214,9 @@ ui.gotoTab.onclick = async () => {
 
 async function init(): Promise<void> {
   [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  micAtStart = (await loadSettings()).micOnAtStart;
+  const settings = await loadSettings();
+  micAtStart = settings.micOnAtStart;
+  saveToText = await describeSaveTarget(settings);
   micPerm = await micPermission();
   state = await getState();
   render();

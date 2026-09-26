@@ -1,9 +1,9 @@
 /**
  * Sink = where recorded bytes go. During recording everything is written to
  * OPFS (crash-safe, see plan §7); on finalize the file is exported to its
- * destination. M1 exports to the Downloads folder; M3 adds a user-chosen
- * directory as a second export target.
+ * destination: the Downloads folder, or a folder the user picked (M3).
  */
+import { saveDirectoryPermission, uniqueName } from './handle-store';
 import type { WriterRequestBody, WriterResponse } from './writer-protocol';
 
 export interface Sink {
@@ -13,7 +13,19 @@ export interface Sink {
   /** Overwrite bytes at an absolute offset (used for the Duration fix). */
   patchAt(offset: number, bytes: Uint8Array): Promise<void>;
   /** Close and export. Resolves once the file is at its destination. */
-  finalize(): Promise<{ fileName: string; bytes: number }>;
+  finalize(target?: ExportTarget): Promise<ExportResult>;
+}
+
+export type ExportTarget = { kind: 'downloads' } | { kind: 'directory'; handle: FileSystemDirectoryHandle };
+
+export interface ExportResult {
+  fileName: string;
+  bytes: number;
+  savedTo: 'downloads' | 'directory';
+  /** Human-readable destination (folder name or 「下載資料夾」). */
+  location: string;
+  /** Set when a folder export failed and Downloads was used instead. */
+  fallbackReason?: string;
 }
 
 export class OpfsSink implements Sink {
@@ -61,17 +73,35 @@ export class OpfsSink implements Sink {
     await this.call({ op: 'patch', offset, data: copy }, [copy]);
   }
 
-  /** Close the OPFS file and save it to the Downloads folder. */
-  async finalize(): Promise<{ fileName: string; bytes: number }> {
+  /**
+   * Close the OPFS file and export it. With a folder handle the file is
+   * streamed into that folder; if that fails (no permission, folder moved,
+   * disk full…) we fall back to the Downloads folder so the recording is
+   * never lost. The OPFS copy is removed only after a successful export.
+   */
+  async finalize(target: ExportTarget = { kind: 'downloads' }): Promise<ExportResult> {
     const bytes = await this.call({ op: 'close' });
     const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle('recordings');
-    // A File from OPFS is disk-backed: the blob URL streams from disk, not memory.
+    // A File from OPFS is disk-backed: streaming/blob URLs read from disk, not memory.
     const file = await (await dir.getFileHandle(this.name)).getFile();
+
+    let fallbackReason: string | undefined;
+    if (target.kind === 'directory') {
+      try {
+        const fileName = await exportToDirectory(file, target.handle, this.name);
+        await this.call({ op: 'remove', name: this.name });
+        return { fileName, bytes, savedTo: 'directory', location: target.handle.name };
+      } catch (e) {
+        fallbackReason = (e as Error).message;
+        console.warn('Folder export failed, falling back to Downloads:', e);
+      }
+    }
+
     const url = URL.createObjectURL(file);
     try {
-      const finalName = await downloadAndWait(url, this.name);
+      const fileName = await downloadAndWait(url, this.name);
       await this.call({ op: 'remove', name: this.name });
-      return { fileName: finalName, bytes };
+      return { fileName, bytes, savedTo: 'downloads', location: '下載資料夾', fallbackReason };
     } finally {
       URL.revokeObjectURL(url);
     }
@@ -121,4 +151,21 @@ function downloadAndWait(url: string, filename: string): Promise<string> {
       })
       .catch((e) => done(() => reject(e)));
   });
+}
+
+/** Stream `file` into `dir` under a non-conflicting name; returns the name used. */
+export async function exportToDirectory(file: Blob, dir: FileSystemDirectoryHandle, name: string): Promise<string> {
+  const perm = await saveDirectoryPermission(dir);
+  if (perm !== 'granted') throw new Error(`沒有寫入資料夾「${dir.name}」的權限`);
+  const finalName = await uniqueName(dir, name);
+  const handle = await dir.getFileHandle(finalName, { create: true });
+  const writable = await handle.createWritable();
+  try {
+    await file.stream().pipeTo(writable); // closes the writable on success
+  } catch (e) {
+    await writable.abort().catch(() => undefined);
+    await dir.removeEntry(finalName).catch(() => undefined);
+    throw e;
+  }
+  return finalName;
 }
