@@ -14,7 +14,7 @@ npm run build
 ```
 
 1. Chrome 開啟 `chrome://extensions`，右上角打開「開發人員模式」。
-2. 按「載入未封裝項目」，選擇 `.output/chrome-mv3` 資料夾。
+2. 按「載入未封裝項目」，選擇 `dist/chrome-mv3` 資料夾。
 3. 建議把 Tab Recorder 圖示釘選到工具列。
 
 之後改了程式碼，重新 `npm run build`，再到 `chrome://extensions` 按 Tab Recorder 的重新載入即可。**錄製中不要重新載入 extension**，否則錄製會中斷。

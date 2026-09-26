@@ -4,6 +4,8 @@ import { defineConfig } from 'wxt';
 export default defineConfig({
   srcDir: 'src',
   publicDir: 'public',
+  // Visible (non-dot) folder so it can be picked in Chrome's "Load unpacked" dialog.
+  outDir: 'dist',
   manifest: {
     name: 'Tab Recorder',
     description: '錄製 Chrome 分頁的影像與聲音（例如 Google Meet 線上課程），輸出 WebM。',
