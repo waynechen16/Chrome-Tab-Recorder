@@ -1,6 +1,6 @@
 {
   "name": "chrome-tab-recorder",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Record a Chrome tab's video and audio (e.g. Google Meet classes) to WebM.",
   "private": true,
   "type": "module",

@@ -44,3 +44,9 @@ button.small { padding: 4px 10px; font-size: 12px; }
 button.danger { color: var(--red); }
 .result { margin: 0; color: #2e7d32; }
 .result:empty { display: none; }
+.checks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.checks li { display: grid; grid-template-columns: 22px 90px 1fr; gap: 8px; align-items: baseline; font-size: 13px; }
+.checks .icon { font-weight: 700; text-align: center; }
+.lv-ok .icon { color: #2e7d32; } .lv-warn .icon { color: #b26a00; } .lv-fail .icon { color: var(--red); } .lv-info .icon { color: var(--muted); }
+.summary { margin: 0; padding: 8px 10px; border-radius: 8px; font-weight: 600; }
+.summary.ok { background: #e8f5e9; color: #1b5e20; } .summary.warn { background: #fff3cd; color: #664d03; } .summary.fail { background: #f8d7da; color: #842029; }

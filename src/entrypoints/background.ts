@@ -175,6 +175,8 @@ async function handle(msg: BackgroundMessage, sender: chrome.runtime.MessageSend
         attention: msg.attention,
         openFiles: msg.openFiles,
         part: msg.part,
+        encodedFps: msg.encodedFps,
+        capturedFps: msg.capturedFps,
       });
 
       if (msg.phase !== s.phase && (msg.phase === 'recording' || msg.phase === 'paused')) {
@@ -207,6 +209,8 @@ async function handle(msg: BackgroundMessage, sender: chrome.runtime.MessageSend
           location: msg.location,
           fallbackReason: msg.fallbackReason,
           parts: msg.parts,
+          avgFps: msg.avgFps,
+          targetFps: msg.targetFps,
         },
       });
       chrome.notifications.create({

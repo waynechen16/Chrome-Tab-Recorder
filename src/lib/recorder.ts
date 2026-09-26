@@ -3,6 +3,7 @@
  * Tracks active (un-paused) time for the final Duration value.
  */
 import { DurationHeaderRewriter, encodeDurationValue } from './webm/duration-patch';
+import { FrameCounter } from './webm/frame-counter';
 import type { Settings } from './settings';
 import type { Sink } from './storage/sink';
 
@@ -26,6 +27,7 @@ export interface RecorderCallbacks {
 export class TabRecorder {
   private mr: MediaRecorder;
   private rewriter = new DurationHeaderRewriter();
+  private counter = new FrameCounter();
   private chain: Promise<void> = Promise.resolve();
   private failed = false;
   private activeMs = 0;
@@ -78,6 +80,11 @@ export class TabRecorder {
     this.lastChunkAt = this.segmentStart;
   }
 
+  /** Video frames the encoder has produced so far (null if it could not be counted). */
+  get videoFrames(): number | null {
+    return this.counter.ok && this.counter.videoTrack !== null ? this.counter.videoFrames : null;
+  }
+
   elapsedMs(): number {
     return this.activeMs + (this.mr.state === 'recording' ? performance.now() - this.segmentStart : 0);
   }
@@ -114,7 +121,9 @@ export class TabRecorder {
     this.chain = this.chain.then(async () => {
       if (this.failed) return;
       try {
-        const bytes = this.rewriter.push(new Uint8Array(await blob.arrayBuffer()));
+        const raw = new Uint8Array(await blob.arrayBuffer());
+        this.counter.push(raw);
+        const bytes = this.rewriter.push(raw);
         const total = await this.sink.write(bytes);
         this.cb.onBytes(total);
       } catch (e) {

@@ -55,6 +55,10 @@ export type RecorderEvent =
       /** OPFS files still open by the recorder (excluded from the recovery list). */
       openFiles: string[];
       part: number;
+      /** Encoded video fps over the last ~10 s (null if unknown or paused). */
+      encodedFps: number | null;
+      /** Frames delivered by tab capture over the same window (null if the browser does not report it). */
+      capturedFps: number | null;
     }
   | {
       to: 'background';
@@ -68,6 +72,9 @@ export type RecorderEvent =
       fallbackReason?: string;
       /** Number of files when auto-segmented (1 otherwise). */
       parts: number;
+      /** Average encoded video fps over the whole recording (null if unknown). */
+      avgFps: number | null;
+      targetFps: number;
     }
   | {
       to: 'background';

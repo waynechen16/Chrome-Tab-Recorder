@@ -129,7 +129,10 @@ function render(): void {
     case 'recording':
     case 'paused':
       show('rec');
-      ui.size.textContent = `已寫入 ${formatBytes(s.bytesWritten)}`;
+      ui.size.textContent =
+        `已寫入 ${formatBytes(s.bytesWritten)}` +
+        (s.part && s.part > 1 ? ` ・ 第 ${s.part} 段` : '') +
+        (s.encodedFps != null ? ` ・ ${s.encodedFps.toFixed(0)} fps` : '');
       ui.recTitle.textContent = '';
       ui.pause.textContent = s.phase === 'paused' ? '繼續' : '暫停';
       ui.gotoTab.hidden = s.targetTabId === activeTab?.id;
@@ -161,7 +164,8 @@ function render(): void {
     ui.last.textContent =
       `上次存檔：${last.location ? `「${last.location}」／` : ''}${last.parts && last.parts > 1 ? `共 ${last.parts} 個檔案，最後一段 ` : ''}${last.fileName}（${formatDuration(last.durationMs)}，${formatBytes(last.bytes)}）` +
       (last.fallbackReason ? ` — 無法存到指定資料夾（${last.fallbackReason}），已改存到下載資料夾` : '') +
-      (last.durationFixed ? '' : ' — 注意：時長資訊未寫入');
+      (last.durationFixed ? '' : ' — 注意：時長資訊未寫入') +
+      (last.avgFps != null ? ` ・ 平均 ${last.avgFps} fps` : '');
   }
 }
 

@@ -64,6 +64,15 @@ let completedBytes = 0;
 const exporting = new Set<Promise<void>>();
 const savedParts: ExportResult[] = [];
 let rotating = false;
+let videoTrackRef: MediaStreamTrack | undefined;
+/** Encoded frames of parts already handed off; null once any part could not be counted. */
+let completedFrames: number | null = 0;
+interface FpsSample { activeMs: number; frames: number | null; delivered: number | null }
+const fpsSamples: FpsSample[] = [];
+let encodedFps: number | null = null;
+let capturedFps: number | null = null;
+let slowStreak = 0;
+let slowLogged = false;
 let stopping: Promise<void> | undefined;
 let micError: string | undefined;
 let micDeviceId = '';
@@ -92,6 +101,46 @@ const PHASE_LABEL: Record<Phase, string> = {
 
 const elapsedTotal = () => completedMs + (current?.recorder.elapsedMs() ?? 0);
 const bytesTotal = () => completedBytes + (current?.bytes ?? 0);
+const framesTotal = (): number | null => {
+  const f = current?.recorder.videoFrames;
+  return completedFrames === null || f === null || f === undefined ? null : completedFrames + f;
+};
+
+/** Frames delivered by tab capture (Chrome's MediaStreamTrack.stats), if available. */
+function deliveredFrames(): number | null {
+  const stats = (videoTrackRef as unknown as { stats?: { deliveredFrames?: number } } | undefined)?.stats;
+  return typeof stats?.deliveredFrames === 'number' ? stats.deliveredFrames : null;
+}
+
+/**
+ * Rolling fps over ~10 s of active recording. Tab capture only sends frames
+ * when the page changes, so a low number alone is normal for static slides;
+ * only encoded ≪ captured means the computer cannot keep up.
+ */
+function sampleFps(): void {
+  if (phase !== 'recording') {
+    fpsSamples.length = 0;
+    encodedFps = capturedFps = null;
+    return;
+  }
+  fpsSamples.push({ activeMs: elapsedTotal(), frames: framesTotal(), delivered: deliveredFrames() });
+  while (fpsSamples.length > 6) fpsSamples.shift();
+  const a = fpsSamples[0]!;
+  const b = fpsSamples[fpsSamples.length - 1]!;
+  const secs = (b.activeMs - a.activeMs) / 1000;
+  if (secs < 4) return;
+  encodedFps = a.frames !== null && b.frames !== null ? Math.max(0, (b.frames - a.frames) / secs) : null;
+  capturedFps = a.delivered !== null && b.delivered !== null ? Math.max(0, (b.delivered - a.delivered) / secs) : null;
+  const slow = encodedFps !== null && capturedFps !== null && capturedFps > 5 && encodedFps < capturedFps * 0.85;
+  slowStreak = slow ? slowStreak + 1 : 0;
+  if (slowStreak >= 3) {
+    warning = `電腦來不及編碼（實際 ${encodedFps!.toFixed(0)} fps／擷取 ${capturedFps!.toFixed(0)} fps），影片可能不順。建議到設定改用 VP8，或降低解析度、幀率。`;
+    if (!slowLogged) {
+      slowLogged = true;
+      void logEvent('warn', 'ENCODER_SLOW', warning);
+    }
+  }
+}
 const openFiles = () => [...(current ? [current.sink.fileName] : []), ...exportingNames];
 const exportingNames = new Set<string>();
 
@@ -138,6 +187,8 @@ async function report(): Promise<void> {
     attention,
     openFiles: [...openFiles()],
     part: current?.index ?? 1,
+    encodedFps,
+    capturedFps,
   });
 }
 
@@ -220,6 +271,8 @@ async function rotate(): Promise<void> {
     await next.recorder.start();
     completedMs += old.recorder.elapsedMs();
     completedBytes += old.bytes;
+    const oldFrames = old.recorder.videoFrames;
+    completedFrames = completedFrames === null || oldFrames === null ? null : completedFrames + oldFrames;
     current = next;
     exportingNames.add(old.sink.fileName);
     const job = closePart(old)
@@ -265,6 +318,9 @@ function finish(): Promise<void> {
     const { result } = closed;
     savedParts[last.index - 1] = result;
     const totalMs = completedMs + closed.durationMs;
+    const lastFrames = last.recorder.videoFrames;
+    const allFrames = completedFrames === null || lastFrames === null ? null : completedFrames + lastFrames;
+    const avgFps = allFrames !== null && totalMs > 0 ? Math.round((allFrames / (totalMs / 1000)) * 10) / 10 : null;
     const totalBytes = completedBytes + result.bytes;
     const fallbackReason = savedParts.find((p) => p?.fallbackReason)?.fallbackReason;
     if (result.fallbackReason) void logEvent('warn', 'FOLDER_FALLBACK', `${result.fileName}：${result.fallbackReason}`);
@@ -277,6 +333,8 @@ function finish(): Promise<void> {
       durationFixed: closed.durationFixed,
       fallbackReason,
       parts: last.index,
+      avgFps,
+      targetFps: settings?.fps ?? 30,
     });
     phase = 'idle';
     render();
@@ -418,6 +476,7 @@ async function main(): Promise<void> {
     return fail('CAPTURE_FAILED', '擷取到的串流沒有影像軌');
   }
   recStream = new MediaStream([videoTrack, ...(audioTrack ? [audioTrack] : [])]);
+  videoTrackRef = videoTrack;
   if (!audioOk) {
     showNotice('瀏覽器暫停了聲音回放：點這裡恢復課程聲音（錄音不受影響）', 'warn', async () => {
       if (await graph?.resume()) {
@@ -449,6 +508,7 @@ async function main(): Promise<void> {
   if (init.micOn) await applyMic(true);
 
   setInterval(() => {
+    sampleFps();
     render();
     if (phase === 'recording' || phase === 'paused') void report();
   }, STATUS_INTERVAL_MS);

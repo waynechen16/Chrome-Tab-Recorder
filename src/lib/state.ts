@@ -15,6 +15,8 @@ export interface LastRecording {
   location?: string;
   fallbackReason?: string;
   parts?: number;
+  avgFps?: number | null;
+  targetFps?: number;
 }
 
 export interface RecordingState {
@@ -37,6 +39,9 @@ export interface RecordingState {
   openFiles?: string[];
   /** Current segment number (1-based). */
   part?: number;
+  encodedFps?: number | null;
+  capturedFps?: number | null;
+  targetFps?: number;
   lastError?: string;
   lastRecording?: LastRecording;
 }

@@ -2,6 +2,7 @@
 import { clearLog, readLog } from '@/lib/error-log';
 import { buildFileName } from '@/lib/filename';
 import { listPending } from '@/lib/pending';
+import { chromeMajorFromUA, evaluatePreflight, overallLevel, type CheckItem, type PreflightInputs } from '@/lib/preflight';
 import { discardRecording, repairAndExport } from '@/lib/recovery';
 import { formatBytes, formatDuration, getState } from '@/lib/state';
 import { listMics, micConstraints, micErrorMessage, micPermission, type MicPermission } from '@/lib/mic';
@@ -39,6 +40,11 @@ const ui = {
   log: $('log'),
   logEmpty: $('logEmpty'),
   clearLog: $<HTMLButtonElement>('clearLog'),
+  runCheck: $<HTMLButtonElement>('runCheck'),
+  checkSummary: $('checkSummary'),
+  checkList: $('checkList'),
+  copyDiag: $<HTMLButtonElement>('copyDiag'),
+  diagNote: $('diagNote'),
   version: $('version'),
 };
 
@@ -326,6 +332,96 @@ ui.clearLog.onclick = async () => {
   await renderLog();
 };
 
+// ---------- pre-class check & diagnostics ----------
+
+async function collectPreflightInputs(): Promise<PreflightInputs> {
+  const est = await navigator.storage.estimate().catch(() => ({}) as StorageEstimate);
+  const handle = settings.saveLocation === 'directory' ? await getSaveDirectory() : undefined;
+  const folder: PreflightInputs['folder'] =
+    settings.saveLocation === 'downloads' ? 'downloads' : handle ? await saveDirectoryPermission(handle) : 'missing';
+  const state = await getState();
+  const active = state.phase !== 'idle' && state.phase !== 'error';
+  return {
+    chromeMajor: chromeMajorFromUA(navigator.userAgent),
+    cpuCores: navigator.hardwareConcurrency || 0,
+    memoryGB: (navigator as unknown as { deviceMemory?: number }).deviceMemory ?? null,
+    supports: {
+      vp9: MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus'),
+      vp8: MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus'),
+    },
+    freeBytes: est.quota !== undefined && est.usage !== undefined ? est.quota - est.usage : null,
+    settings,
+    folder,
+    mic: await micPermission(),
+    pendingCount: (await listPending(active ? state.openFiles ?? [] : [])).length,
+  };
+}
+
+const ICON: Record<CheckItem['level'], string> = { ok: '✓', warn: '!', fail: '✕', info: 'i' };
+let lastChecks: CheckItem[] = [];
+
+async function runCheck(): Promise<void> {
+  ui.runCheck.disabled = true;
+  lastChecks = evaluatePreflight(await collectPreflightInputs());
+  const level = overallLevel(lastChecks);
+  ui.checkSummary.hidden = false;
+  ui.checkSummary.className = `summary ${level === 'info' ? 'ok' : level}`;
+  ui.checkSummary.textContent = {
+    ok: '一切就緒，可以開始上課錄影。',
+    info: '一切就緒，可以開始上課錄影。',
+    warn: '可以錄影，但有幾項建議先處理。',
+    fail: '有問題需要先處理，否則可能無法錄影。',
+  }[level];
+  ui.checkList.replaceChildren(
+    ...lastChecks.map((c) => {
+      const li = document.createElement('li');
+      li.className = `lv-${c.level}`;
+      const icon = document.createElement('span');
+      icon.className = 'icon';
+      icon.textContent = ICON[c.level];
+      const title = document.createElement('span');
+      title.textContent = c.title;
+      const detail = document.createElement('span');
+      detail.className = 'muted';
+      detail.textContent = c.detail;
+      li.append(icon, title, detail);
+      return li;
+    }),
+  );
+  ui.runCheck.disabled = false;
+}
+
+ui.runCheck.onclick = () => void runCheck();
+
+/** Everything useful for troubleshooting, as JSON the user can paste into a report. */
+ui.copyDiag.onclick = async () => {
+  if (!lastChecks.length) await runCheck();
+  const state = await getState();
+  const diag = {
+    extension: chrome.runtime.getManifest().version,
+    userAgent: navigator.userAgent,
+    platform: (navigator as unknown as { userAgentData?: { platform?: string } }).userAgentData?.platform ?? navigator.platform,
+    cpuCores: navigator.hardwareConcurrency,
+    deviceMemoryGB: (navigator as unknown as { deviceMemory?: number }).deviceMemory ?? null,
+    settings: { ...settings, micDeviceId: settings.micDeviceId ? '(set)' : '' },
+    checks: lastChecks.map(({ id, level, detail }) => ({ id, level, detail })),
+    lastRecording: state.lastRecording ?? null,
+    currentPhase: state.phase,
+    problems: await readLog(),
+    generatedAt: new Date().toISOString(),
+  };
+  const text = JSON.stringify(diag, null, 2);
+  try {
+    await navigator.clipboard.writeText(text);
+    ui.diagNote.textContent = '已複製診斷資訊，可直接貼給我。';
+  } catch {
+    ui.diagNote.textContent = '無法寫入剪貼簿，已改為下載 JSON 檔。';
+    const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+    await chrome.downloads.download({ url, filename: `tab-recorder-diagnostics-${Date.now()}.json` });
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  }
+};
+
 // ---------- reset ----------
 
 ui.reset.onclick = async () => {
@@ -352,6 +448,7 @@ async function init(): Promise<void> {
   await renderDevices(settings.micDeviceId);
   await renderPending();
   await renderLog();
+  await runCheck();
   if (location.hash === '#recovery') ui.recovery.scrollIntoView();
   // Reflect changes made elsewhere (e.g. the popup's mic switch).
   chrome.storage.onChanged.addListener(async (changes, area) => {

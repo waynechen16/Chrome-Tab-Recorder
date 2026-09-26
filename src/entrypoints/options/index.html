@@ -25,6 +25,17 @@
         <p id="recoveryResult" class="result small"></p>
       </section>
 
+      <!-- Pre-class check -->
+      <section class="card" id="preflight">
+        <div class="row between">
+          <h2>課前檢查</h2>
+          <button id="runCheck" class="primary small">執行檢查</button>
+        </div>
+        <p class="muted small">上課前按一次，確認版本、編碼、空間、儲存位置與麥克風都沒問題。</p>
+        <p id="checkSummary" class="summary" hidden></p>
+        <ul id="checkList" class="checks"></ul>
+      </section>
+
       <!-- Quality -->
       <section class="card">
         <h2>錄影品質</h2>
@@ -172,10 +183,14 @@
       <section class="card">
         <div class="row between">
           <h2>最近的問題紀錄</h2>
-          <button id="clearLog" class="small">清除</button>
+          <div class="row">
+            <button id="copyDiag" class="small">複製診斷資訊</button>
+            <button id="clearLog" class="small">清除</button>
+          </div>
         </div>
         <ul id="log" class="log"></ul>
         <p id="logEmpty" class="muted small">目前沒有紀錄。</p>
+        <p id="diagNote" class="result small"></p>
       </section>
 
       <div class="row">
