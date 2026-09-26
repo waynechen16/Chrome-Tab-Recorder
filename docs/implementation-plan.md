@@ -2,7 +2,7 @@
 
 Sep 26, 2026 · @Wayne
 
-> 文件版本：v1.0（2026-09-26）。版本歷程見 [CHANGELOG](CHANGELOG.md)。
+> 文件版本：v1.1（2026-09-26）。版本歷程見 [CHANGELOG](CHANGELOG.md)。
 
 ## 1. 決策摘要與架構影響
 
@@ -85,7 +85,7 @@ Manifest 重點（由 `wxt.config.ts` 生成）：
 | 欄位 | 值 | 用途 |
 | --- | --- | --- |
 | `manifest_version` | 3 | — |
-| `permissions` | `tabCapture`, `activeTab`, `scripting`, `downloads`, `storage`, `tabs` | 擷取、知道目前分頁、存檔、狀態、監聽分頁關閉 |
+| `permissions` | `tabCapture`, `activeTab`, `scripting`, `downloads`, `storage`, `tabs`, `notifications` | 擷取、知道目前分頁、分頁標示、存檔、狀態、監聽分頁關閉、存檔完成通知 |
 | `action` | `default_popup: popup.html` | 點圖示彈出控制面板 |
 | `background.service_worker` | `background.js` | 協調者 |
 | `options_page` | `options.html` | 設定 |
@@ -376,6 +376,8 @@ Chrome 的 `MediaRecorder` 寫出的 WebM 是 live 模式：Segment 大小為 un
 
 ## 10. 里程碑與時程
 
+> **進度（v1.1）**：M1 已實作完成，另提前納入暫停／繼續、錄製狀態標示（第 8 節）與 OPFS worker 即時落盤（原屬 M4 的寫入方式）。待你在真實 Meet 課程上完成 M1 驗收後進入 M2。
+
 五個里程碑，每個都能獨立驗收；M1 結束就能在真實課程上試錄，M3 結束就是日常可用的版本。時程以我來實作、你審閱與實測來估。
 
 | 里程碑 | 範圍 | 驗收條件 | 預估 |
@@ -433,6 +435,8 @@ M1 結束是第一個決策點：若第 12 節的假設有任一項不成立，�
 驗證指令：`ffprobe -v error -show_entries format=duration,size -show_streams out.webm` 看時長與編碼；`mkvinfo out.webm | head -40` 看 Info/Duration 是否存在；`ffmpeg -i out.webm -f null -` 掃描全檔確認無損壞封裝。
 
 ## 12. 待驗證的技術假設
+
+> **M1 驗證結果（v1.1）**：A1 已在 Chromium 以完整流程驗證（popup → service worker 開視窗 → `RECORDER_READY` 後才取 streamId → 錄製 → 下載），可行。A2 以設計避開：呼叫 `getMediaStreamId` 時不帶 `consumerTabId`，stream id 即可由本 extension 的任何頁面使用。A4 已用 Chromium 實際錄出的 WebM 驗證：沒有 SeekHead，Info 內插入 Duration 後 ffprobe 讀到正確時長、全檔解碼無誤。A3、A5 及 CPU／畫質量測需在你的 Mac 與真實 Meet 課程上確認。
 
 這五項在 M1 第一天以最小 spike 確認，每項都有備案，不會影響整體方向。
 

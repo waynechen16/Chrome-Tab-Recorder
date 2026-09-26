@@ -1,5 +1,12 @@
 # 文件版本歷程
 
+## v1.1 — 2026-09-26
+
+- M1 實作完成；第 10 節加註進度，第 12 節加註 A1／A2／A4 的驗證結果。
+- Manifest 權限新增 `notifications`（存檔完成通知）。
+- `getMediaStreamId` 不帶 `consumerTabId`，避開假設 A2。
+- Recorder Window 開啟位置若超出螢幕，改由 Chrome 自行決定位置。
+
 ## v1.0 — 2026-09-26
 
 - 初版 implementation plan。

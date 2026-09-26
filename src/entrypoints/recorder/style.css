@@ -1,0 +1,23 @@
+:root { color-scheme: light dark; --red: #e53935; --amber: #f9a825; --fg: #1f2328; --muted: #6b7280; --bg: #fff; --card: #f3f4f6; }
+@media (prefers-color-scheme: dark) { :root { --fg: #e5e7eb; --muted: #9ca3af; --bg: #1f2124; --card: #2b2e33; } }
+* { box-sizing: border-box; }
+body { margin: 0; font: 13px/1.4 system-ui, -apple-system, "PingFang TC", "Microsoft JhengHei", sans-serif; color: var(--fg); background: var(--bg); }
+main { padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+.row { display: flex; align-items: center; gap: 8px; }
+.head { font-weight: 600; font-size: 14px; }
+.timer { margin-left: auto; font-variant-numeric: tabular-nums; font-size: 18px; }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); }
+.dot.recording { background: var(--red); animation: blink 1.2s infinite; }
+.dot.paused { background: var(--amber); }
+@keyframes blink { 50% { opacity: .3; } }
+.target { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.meta { color: var(--muted); font-variant-numeric: tabular-nums; }
+.meter { flex: 1; height: 6px; border-radius: 3px; background: var(--card); overflow: hidden; }
+.meter > div { height: 100%; width: 0; background: #43a047; transition: width .15s; }
+.notice { padding: 6px 8px; border-radius: 6px; background: #fff3cd; color: #664d03; }
+.notice.error { background: #f8d7da; color: #842029; }
+.notice.clickable { cursor: pointer; }
+.buttons button { flex: 1; padding: 6px 8px; border-radius: 6px; border: 1px solid #0000001f; background: var(--card); color: var(--fg); font: inherit; cursor: pointer; }
+.buttons button:disabled { opacity: .5; cursor: default; }
+.buttons .danger { background: var(--red); color: #fff; border-color: transparent; }
+.hint { margin: 0; color: var(--muted); font-size: 12px; }

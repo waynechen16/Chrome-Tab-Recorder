@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Tab Recorder</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <span id="dot" class="dot"></span>
+        <strong id="status">Tab Recorder</strong>
+        <span id="timer" class="timer" hidden>00:00:00</span>
+      </header>
+
+      <section class="tab">
+        <img id="favicon" alt="" width="16" height="16" />
+        <span id="tabTitle" class="title"></span>
+      </section>
+
+      <div id="notice" class="notice" hidden></div>
+
+      <!-- idle -->
+      <div id="idleView" class="view" hidden>
+        <button id="start" class="primary">● 開始錄製此分頁</button>
+        <p id="unrecordable" class="muted" hidden></p>
+      </div>
+
+      <!-- recording / paused -->
+      <div id="recView" class="view" hidden>
+        <div class="meta"><span id="size">0 KB</span><span id="recTitle" class="title"></span></div>
+        <div class="buttons">
+          <button id="pause">暫停</button>
+          <button id="stop" class="danger">停止並存檔</button>
+        </div>
+        <div class="buttons">
+          <button id="showRecorder" class="link">顯示錄製視窗</button>
+          <button id="gotoTab" class="link" hidden>切換到錄製中的分頁</button>
+        </div>
+      </div>
+
+      <!-- starting / stopping -->
+      <div id="busyView" class="view muted" hidden></div>
+
+      <!-- error -->
+      <div id="errorView" class="view" hidden>
+        <button id="ackError">確定</button>
+      </div>
+
+      <footer id="last" class="muted" hidden></footer>
+      <p class="consent muted">錄製他人參與的會議或課程前，請先取得同意。</p>
+    </main>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

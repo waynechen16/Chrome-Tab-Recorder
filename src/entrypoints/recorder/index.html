@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Tab Recorder</title>
+    <link rel="icon" id="favicon" href="/icon/32.png" />
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <main>
+      <div class="row head">
+        <span id="dot" class="dot"></span>
+        <span id="phase">準備中…</span>
+        <span id="timer" class="timer">00:00:00</span>
+      </div>
+      <div id="target" class="target"></div>
+      <div class="row meta">
+        <span id="size">0 KB</span>
+        <div class="meter" title="課程音訊音量"><div id="level"></div></div>
+      </div>
+      <div id="notice" class="notice" hidden></div>
+      <div class="row buttons">
+        <button id="pause" disabled>暫停</button>
+        <button id="stop" class="danger" disabled>停止並存檔</button>
+        <button id="minimize" title="最小化此視窗">最小化</button>
+      </div>
+      <p class="hint">錄製中請勿關閉此視窗，可隨時最小化。</p>
+    </main>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

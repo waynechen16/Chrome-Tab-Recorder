@@ -1,0 +1,27 @@
+:root { color-scheme: light dark; --red: #e53935; --amber: #f9a825; --fg: #1f2328; --muted: #6b7280; --bg: #fff; --card: #f3f4f6; --line: #e5e7eb; }
+@media (prefers-color-scheme: dark) { :root { --fg: #e5e7eb; --muted: #9ca3af; --bg: #1f2124; --card: #2b2e33; --line: #3a3d42; } }
+* { box-sizing: border-box; }
+body { margin: 0; width: 320px; font: 13px/1.45 system-ui, -apple-system, "PingFang TC", "Microsoft JhengHei", sans-serif; color: var(--fg); background: var(--bg); }
+main { padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+header { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.timer { margin-left: auto; font-variant-numeric: tabular-nums; font-size: 18px; font-weight: 600; }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--line); flex: none; }
+.dot.recording { background: var(--red); animation: blink 1.2s infinite; }
+.dot.paused { background: var(--amber); }
+.dot.error { background: #757575; }
+@keyframes blink { 50% { opacity: .3; } }
+.tab { display: flex; align-items: center; gap: 8px; padding: 8px; border-radius: 8px; background: var(--card); min-height: 34px; }
+.title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.view { display: flex; flex-direction: column; gap: 8px; }
+.meta { display: flex; gap: 8px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.buttons { display: flex; gap: 8px; }
+button { flex: 1; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--fg); font: inherit; cursor: pointer; }
+button:disabled { opacity: .5; cursor: default; }
+button.primary { background: var(--red); color: #fff; border-color: transparent; font-weight: 600; padding: 10px; }
+button.danger { background: var(--red); color: #fff; border-color: transparent; }
+button.link { background: none; border: none; color: #2563eb; padding: 2px; }
+.notice { padding: 8px; border-radius: 8px; background: #fff3cd; color: #664d03; }
+.notice.error { background: #f8d7da; color: #842029; }
+.muted { color: var(--muted); margin: 0; }
+footer { font-size: 12px; border-top: 1px solid var(--line); padding-top: 8px; }
+.consent { font-size: 11px; }
