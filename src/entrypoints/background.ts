@@ -16,7 +16,7 @@ import { loadSettings } from '@/lib/settings';
 import { canTransition, formatBytes, formatDuration, getState, resetState, setState } from '@/lib/state';
 
 const RECORDER_WIDTH = 380;
-const RECORDER_HEIGHT = 250;
+const RECORDER_HEIGHT = 300;
 
 export default defineBackground({
   type: 'module',
@@ -99,7 +99,7 @@ async function handle(msg: BackgroundMessage, sender: chrome.runtime.MessageSend
       if (s.phase !== 'idle' && s.phase !== 'error') {
         return { ok: false, code: 'ALREADY_RECORDING', message: `已在錄製「${s.targetTitle ?? ''}」` } satisfies CommandResponse;
       }
-      await resetState({ phase: 'starting', targetTabId: msg.tabId, targetTitle: msg.tabTitle });
+      await resetState({ phase: 'starting', targetTabId: msg.tabId, targetTitle: msg.tabTitle, micOn: msg.micOn });
       let win: chrome.windows.Window | undefined;
       const opts: chrome.windows.CreateData = {
         url: chrome.runtime.getURL('/recorder.html'),
@@ -141,6 +141,7 @@ async function handle(msg: BackgroundMessage, sender: chrome.runtime.MessageSend
           streamId,
           tabId: s.targetTabId,
           tabTitle: s.targetTitle ?? '',
+          micOn: s.micOn,
           settings: await loadSettings(),
         } satisfies InitResponse;
       } catch (e) {
@@ -163,6 +164,8 @@ async function handle(msg: BackgroundMessage, sender: chrome.runtime.MessageSend
         elapsedMs: msg.elapsedMs,
         elapsedAt: Date.now(),
         audioPlaybackBlocked: msg.audioPlaybackBlocked,
+        micOn: msg.micOn,
+        micError: msg.micError,
         warning: msg.warning,
       });
 
@@ -213,6 +216,15 @@ async function handle(msg: BackgroundMessage, sender: chrome.runtime.MessageSend
     case 'RESUME':
       await toRecorder({ to: 'recorder', type: msg.type });
       return { ok: true } satisfies CommandResponse;
+
+    case 'SET_MIC': {
+      const s = await getState();
+      if (s.phase !== 'recording' && s.phase !== 'paused') {
+        return { ok: false, code: 'MIC_FAILED', message: '目前沒有在錄製' } satisfies CommandResponse;
+      }
+      await toRecorder({ to: 'recorder', type: 'SET_MIC', enabled: msg.enabled });
+      return { ok: true } satisfies CommandResponse;
+    }
 
     case 'SHOW_RECORDER': {
       const s = await getState();

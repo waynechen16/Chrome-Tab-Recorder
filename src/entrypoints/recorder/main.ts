@@ -6,6 +6,7 @@ import { AudioGraph } from '@/lib/audio-graph';
 import { getTabStream } from '@/lib/capture';
 import { buildFileName } from '@/lib/filename';
 import { FAVICON, TITLE_PREFIX } from '@/lib/indicator';
+import { micErrorMessage, micPermission } from '@/lib/mic';
 import { send, type ErrorCode, type InitResponse, type Phase, type RecorderCommand } from '@/lib/messages';
 import { TabRecorder } from '@/lib/recorder';
 import { formatBytes, formatDuration } from '@/lib/state';
@@ -27,6 +28,9 @@ const ui = {
   pause: $<HTMLButtonElement>('pause'),
   stop: $<HTMLButtonElement>('stop'),
   minimize: $<HTMLButtonElement>('minimize'),
+  mic: $<HTMLButtonElement>('mic'),
+  micLevel: $('micLevel'),
+  micNote: $('micNote'),
   favicon: $<HTMLLinkElement>('favicon'),
 };
 
@@ -38,6 +42,8 @@ let graph: AudioGraph | undefined;
 let stream: MediaStream | undefined;
 let sink: OpfsSink | undefined;
 let stopping: Promise<void> | undefined;
+let micError: string | undefined;
+let micDeviceId = '';
 
 function showNotice(text: string, kind: 'warn' | 'error' = 'warn', onClick?: () => void): void {
   ui.notice.hidden = false;
@@ -75,6 +81,17 @@ function render(): void {
     document.title = `${PHASE_LABEL[phase]} — Tab Recorder`;
     ui.favicon.href = '/icon/32.png';
   }
+  renderMic();
+}
+
+function renderMic(): void {
+  const on = graph?.micEnabled ?? false;
+  const active = phase === 'recording' || phase === 'paused';
+  ui.mic.disabled = !active;
+  ui.mic.textContent = on ? '麥克風：開' : '麥克風：關';
+  ui.mic.classList.toggle('on', on);
+  ui.micNote.hidden = !micError;
+  ui.micNote.textContent = micError ?? '';
 }
 
 async function report(): Promise<void> {
@@ -85,6 +102,8 @@ async function report(): Promise<void> {
     bytesWritten,
     elapsedMs: recorder?.elapsedMs() ?? 0,
     audioPlaybackBlocked: graph ? !graph.running : false,
+    micOn: graph?.micEnabled ?? false,
+    micError,
     warning,
   });
 }
@@ -142,6 +161,28 @@ function finish(): Promise<void> {
   return stopping;
 }
 
+/**
+ * Switch the mic. From a background command the window may be minimised, so
+ * we never trigger a permission prompt there (it would be invisible and hang);
+ * a click inside this window may prompt because the user can see it.
+ */
+async function applyMic(on: boolean, allowPrompt = false): Promise<void> {
+  if (!graph) return;
+  try {
+    if (on) {
+      const perm = await micPermission();
+      if (perm === 'denied' || (perm !== 'granted' && !allowPrompt)) throw new Error('NOT_GRANTED');
+    }
+    await graph.setMic(on, micDeviceId);
+    micError = undefined;
+  } catch (e) {
+    micError = micErrorMessage(e);
+    console.warn('Mic:', e);
+  }
+  renderMic();
+  void report();
+}
+
 function onCommand(msg: RecorderCommand): void {
   if (msg.to !== 'recorder' || !recorder) return;
   switch (msg.type) {
@@ -159,6 +200,9 @@ function onCommand(msg: RecorderCommand): void {
       break;
     case 'STOP':
       void finish();
+      break;
+    case 'SET_MIC':
+      if (phase === 'recording' || phase === 'paused') void applyMic(msg.enabled);
       break;
   }
 }
@@ -183,6 +227,7 @@ async function main(): Promise<void> {
     return;
   }
   const { streamId, tabTitle, settings } = init;
+  micDeviceId = settings.micDeviceId;
   ui.target.textContent = tabTitle;
   ui.target.title = tabTitle;
 
@@ -216,6 +261,11 @@ async function main(): Promise<void> {
     });
   }
   graph.onStateChange(() => void report());
+  graph.onMicLost = () => {
+    micError = '麥克風裝置已中斷連線，已自動關閉。重新接上後可再打開。';
+    renderMic();
+    void report();
+  };
 
   const fileName = buildFileName(settings.fileNameTemplate, tabTitle, new Date());
   sink = new OpfsSink();
@@ -242,19 +292,23 @@ async function main(): Promise<void> {
 
   await recorder.start();
   setPhase('recording');
+  if (init.micOn) await applyMic(true);
 
   setInterval(() => {
     render();
     if (phase === 'recording' || phase === 'paused') void report();
   }, STATUS_INTERVAL_MS);
   setInterval(() => {
-    if (document.visibilityState === 'visible') ui.level.style.width = `${Math.round((graph?.level() ?? 0) * 100)}%`;
-    if (document.visibilityState === 'visible') render();
+    if (document.visibilityState !== 'visible') return;
+    ui.level.style.width = `${Math.round((graph?.level() ?? 0) * 100)}%`;
+    ui.micLevel.style.width = `${Math.round((graph?.micLevel() ?? 0) * 100)}%`;
+    render();
   }, 250);
 }
 
 ui.pause.onclick = () => onCommand({ to: 'recorder', type: phase === 'paused' ? 'RESUME' : 'PAUSE' });
 ui.stop.onclick = () => void finish();
+ui.mic.onclick = () => void applyMic(!(graph?.micEnabled ?? false), true);
 ui.minimize.onclick = async () => {
   const win = await chrome.windows.getCurrent();
   if (win.id !== undefined) await chrome.windows.update(win.id, { state: 'minimized' });

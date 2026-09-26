@@ -24,6 +24,9 @@ export interface RecordingState {
   elapsedAt?: number;
   bytesWritten: number;
   audioPlaybackBlocked: boolean;
+  /** Mic state: requested at START, then as reported by the recorder. */
+  micOn: boolean;
+  micError?: string;
   warning?: string;
   lastError?: string;
   lastRecording?: LastRecording;
@@ -34,6 +37,7 @@ export const INITIAL_STATE: RecordingState = {
   elapsedMs: 0,
   bytesWritten: 0,
   audioPlaybackBlocked: false,
+  micOn: false,
 };
 
 const TRANSITIONS: Record<Phase, Phase[]> = {

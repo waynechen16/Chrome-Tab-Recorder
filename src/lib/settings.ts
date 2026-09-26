@@ -11,6 +11,10 @@ export interface Settings {
   autoMinimize: boolean;
   /** Tokens: {title} {date} {time}. `.webm` is appended. */
   fileNameTemplate: string;
+  /** Initial mic state when a recording starts (the popup toggle remembers it). */
+  micOnAtStart: boolean;
+  /** Preferred mic; empty = system default. */
+  micDeviceId: string;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -22,6 +26,8 @@ export const DEFAULT_SETTINGS: Settings = {
   audioBitsPerSecond: 128_000,
   autoMinimize: true,
   fileNameTemplate: '{title}_{date}_{time}',
+  micOnAtStart: false,
+  micDeviceId: '',
 };
 
 const KEY = 'settings';
@@ -29,4 +35,10 @@ const KEY = 'settings';
 export async function loadSettings(): Promise<Settings> {
   const stored = (await chrome.storage.local.get(KEY))[KEY] as Partial<Settings> | undefined;
   return { ...DEFAULT_SETTINGS, ...stored };
+}
+
+export async function saveSettings(patch: Partial<Settings>): Promise<Settings> {
+  const next = { ...(await loadSettings()), ...patch };
+  await chrome.storage.local.set({ [KEY]: next });
+  return next;
 }

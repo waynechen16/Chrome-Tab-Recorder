@@ -1,5 +1,7 @@
 /** Popup — only user gestures and state display; holds no media objects. */
 import { send, type CommandResponse, type PopupCommand } from '@/lib/messages';
+import { micPermission, type MicPermission } from '@/lib/mic';
+import { loadSettings, saveSettings } from '@/lib/settings';
 import { elapsedMs, formatBytes, formatDuration, getState, onStateChanged, type RecordingState } from '@/lib/state';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -24,10 +26,18 @@ const ui = {
   errorView: $('errorView'),
   ackError: $<HTMLButtonElement>('ackError'),
   last: $('last'),
+  micRow: $('micRow'),
+  micToggle: $<HTMLInputElement>('micToggle'),
+  micLabel: $('micLabel'),
+  micHint: $('micHint'),
+  openOptions: $<HTMLButtonElement>('openOptions'),
+  settings: $<HTMLButtonElement>('settings'),
 };
 
 let state: RecordingState;
 let activeTab: chrome.tabs.Tab | undefined;
+let micAtStart = false;
+let micPerm: MicPermission = 'unknown';
 
 /** Pages Chrome does not allow extensions to capture. */
 function unrecordableReason(tab?: chrome.tabs.Tab): string | null {
@@ -115,6 +125,8 @@ function render(): void {
       break;
   }
 
+  renderMic();
+
   const last = s.lastRecording;
   ui.last.hidden = !last || s.phase !== 'idle';
   if (last) {
@@ -124,10 +136,46 @@ function render(): void {
   }
 }
 
+function renderMic(): void {
+  const s = state;
+  const recording = s.phase === 'recording' || s.phase === 'paused';
+  ui.micRow.hidden = !(s.phase === 'idle' || recording);
+  const wanted = recording ? s.micOn : micAtStart;
+  ui.micToggle.checked = wanted;
+  ui.micLabel.textContent = recording ? '混入我的麥克風（即時切換）' : '開始時混入我的麥克風';
+  const needsGrant = micPerm !== 'granted';
+  let hint = '';
+  if (recording && s.micError) hint = s.micError;
+  else if ((wanted || (recording && s.micError)) && needsGrant) hint = '尚未授權麥克風。';
+  else if (wanted) hint = '建議戴耳機，避免課程聲音經由麥克風被重複錄進去。';
+  ui.micHint.hidden = !hint;
+  ui.micHint.textContent = hint;
+  ui.openOptions.hidden = !(needsGrant && (wanted || !!s.micError));
+}
+
+ui.micToggle.onchange = async () => {
+  const on = ui.micToggle.checked;
+  if (state.phase === 'recording' || state.phase === 'paused') {
+    await command({ to: 'background', type: 'SET_MIC', enabled: on });
+  } else {
+    micAtStart = on;
+    await saveSettings({ micOnAtStart: on });
+    renderMic();
+  }
+};
+ui.openOptions.onclick = () => chrome.runtime.openOptionsPage();
+ui.settings.onclick = () => chrome.runtime.openOptionsPage();
+
 ui.start.onclick = async () => {
   if (!activeTab?.id) return;
   ui.start.disabled = true;
-  await command({ to: 'background', type: 'START', tabId: activeTab.id, tabTitle: activeTab.title ?? '' });
+  await command({
+    to: 'background',
+    type: 'START',
+    tabId: activeTab.id,
+    tabTitle: activeTab.title ?? '',
+    micOn: micAtStart,
+  });
 };
 ui.pause.onclick = () => command({ to: 'background', type: state.phase === 'paused' ? 'RESUME' : 'PAUSE' });
 ui.stop.onclick = () => command({ to: 'background', type: 'STOP' });
@@ -142,6 +190,8 @@ ui.gotoTab.onclick = async () => {
 
 async function init(): Promise<void> {
   [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  micAtStart = (await loadSettings()).micOnAtStart;
+  micPerm = await micPermission();
   state = await getState();
   render();
   onStateChanged((s) => {

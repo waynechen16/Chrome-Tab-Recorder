@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Tab Recorder 設定</title>
+    <meta name="manifest.open_in_tab" content="true" />
+    <link rel="icon" href="/icon/32.png" />
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <main>
+      <h1>Tab Recorder 設定</h1>
+
+      <section class="card">
+        <h2>麥克風</h2>
+        <p class="muted">
+          錄製中可隨時把你自己的聲音混進錄音。第一次使用前，請在這裡授權一次；授權後錄製中切換麥克風不會再跳出任何提示。
+        </p>
+
+        <div class="row">
+          <span>授權狀態：</span>
+          <strong id="permState">檢查中…</strong>
+        </div>
+        <p id="deniedHelp" class="notice error" hidden>
+          麥克風已被封鎖。請點網址列左側的圖示 →「網站設定」，把「麥克風」改為「允許」，再回到這頁重新整理。
+        </p>
+
+        <div class="row">
+          <button id="test" class="primary">授權並測試麥克風</button>
+          <button id="stopTest" hidden>停止測試</button>
+        </div>
+
+        <div id="testArea" class="test" hidden>
+          <div class="meter"><div id="level"></div></div>
+          <p class="muted small">對著麥克風說話，音量條應該會跳動。</p>
+        </div>
+
+        <label class="field">
+          <span>使用的麥克風</span>
+          <select id="device">
+            <option value="">系統預設</option>
+          </select>
+        </label>
+
+        <label class="check">
+          <input id="micOnAtStart" type="checkbox" />
+          <span>開始錄製時預設混入麥克風（也可在工具列視窗裡切換）</span>
+        </label>
+
+        <p class="muted small">建議戴耳機錄製：用喇叭時，課程聲音可能經由麥克風被重複錄進去。</p>
+        <p id="saved" class="saved" hidden>已儲存</p>
+      </section>
+
+      <section class="card muted">
+        <h2>其他設定</h2>
+        <p>解析度、幀率、位元率、儲存資料夾與檔名規則將在下一版（M3）加入。</p>
+      </section>
+
+      <p class="muted small">錄製他人參與的會議或課程前，請先取得同意。</p>
+    </main>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

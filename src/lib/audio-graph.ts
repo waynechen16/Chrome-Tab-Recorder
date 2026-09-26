@@ -2,34 +2,49 @@
  * Audio routing for the recorder (plan §6).
  *
  *   tab audio ─► tabGain ─┬─► dest (MediaStreamDestination) ─► MediaRecorder
- *                         └─► ctx.destination (speakers — tabCapture mutes the tab)
+ *                         ├─► ctx.destination (speakers — tabCapture mutes the tab)
+ *                         └─► tabAnalyser (level meter)
  *   mic (lazy) ─► micGain (0/1) ─► dest
+ *              └► micAnalyser (level meter, pre-gain)
  *
  * MediaRecorder always records the same `dest` track, so turning the mic on
  * or off never touches the recorder. The mic is never routed to the speakers.
+ * Once acquired, the mic stays open until the recording ends: switching off
+ * only fades the gain to 0, so switching on again is instant and never
+ * re-prompts.
  */
+import { micConstraints } from './mic';
+
 export class AudioGraph {
   private ctx = new AudioContext({ sampleRate: 48000, latencyHint: 'playback' });
   private dest = this.ctx.createMediaStreamDestination();
   private micGain = this.ctx.createGain();
   private micStream?: MediaStream;
+  private micSource?: MediaStreamAudioSourceNode;
   private readonly tabAudio?: MediaStreamTrack;
-  private analyser = this.ctx.createAnalyser();
+  private tabAnalyser = this.ctx.createAnalyser();
+  private micAnalyser = this.ctx.createAnalyser();
   private levelBuf = new Float32Array(1024);
+  private mixing: boolean;
+  private micOn = false;
+  /** Called when the mic device disappears (unplugged, revoked). */
+  onMicLost?: () => void;
 
   constructor(tabStream: MediaStream) {
     this.tabAudio = tabStream.getAudioTracks()[0];
+    this.tabAnalyser.fftSize = 1024;
+    this.micAnalyser.fftSize = 1024;
     if (this.tabAudio) {
       const tabSrc = this.ctx.createMediaStreamSource(new MediaStream([this.tabAudio]));
       const tabGain = this.ctx.createGain();
       tabSrc.connect(tabGain);
       tabGain.connect(this.dest);
       tabGain.connect(this.ctx.destination);
-      this.analyser.fftSize = 1024;
-      tabGain.connect(this.analyser);
+      tabGain.connect(this.tabAnalyser);
     }
     this.micGain.gain.value = 0;
     this.micGain.connect(this.dest);
+    this.mixing = false;
   }
 
   /** Try to start audio processing. Returns false if autoplay policy blocked it. */
@@ -49,32 +64,70 @@ export class AudioGraph {
   }
 
   /**
-   * Track to hand to MediaRecorder. If the context could not start (autoplay
-   * blocked) the mixed track would be silent, so fall back to the raw tab
-   * audio track: the recording stays correct, only local playback is missing.
+   * Track to hand to MediaRecorder (call once, before recording starts).
+   * If the context could not start (autoplay blocked) the mixed track would
+   * be silent, so fall back to the raw tab audio track: the recording stays
+   * correct, but local playback and mic mixing are unavailable.
    */
   recordingTrack(): MediaStreamTrack | undefined {
-    if (this.running) return this.dest.stream.getAudioTracks()[0];
+    this.mixing = this.running;
+    if (this.mixing) return this.dest.stream.getAudioTracks()[0];
     return this.tabAudio;
   }
 
-  /** Current tab audio level 0–1 (RMS), for the recorder window meter. */
-  level(): number {
+  /** Whether the mic can be mixed into the recording. */
+  get canMixMic(): boolean {
+    return this.mixing;
+  }
+
+  get micEnabled(): boolean {
+    return this.micOn;
+  }
+
+  private rms(analyser: AnalyserNode): number {
     if (!this.running) return 0;
-    this.analyser.getFloatTimeDomainData(this.levelBuf);
+    analyser.getFloatTimeDomainData(this.levelBuf);
     let sum = 0;
     for (const v of this.levelBuf) sum += v * v;
     return Math.min(1, Math.sqrt(sum / this.levelBuf.length) * 4);
   }
 
-  /** Mic mixing (UI arrives in M2). */
+  /** Tab audio level 0–1, for the recorder window meter. */
+  level(): number {
+    return this.rms(this.tabAnalyser);
+  }
+
+  /** Mic level 0–1 (0 when the mic is off). */
+  micLevel(): number {
+    return this.micOn ? this.rms(this.micAnalyser) : 0;
+  }
+
+  /**
+   * Turn the mic on or off. Throws (without changing state) if the mic cannot
+   * be opened; callers check permission first so this never shows a prompt
+   * in a minimised window.
+   */
   async setMic(on: boolean, deviceId?: string): Promise<void> {
+    if (on && !this.mixing) throw new Error('MIX_UNAVAILABLE');
     if (on && !this.micStream) {
-      this.micStream = await navigator.mediaDevices.getUserMedia({
-        audio: { deviceId, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: micConstraints(deviceId) });
+      const track = stream.getAudioTracks()[0];
+      track?.addEventListener('ended', () => {
+        // Device unplugged or permission revoked: drop it so the next "on" re-acquires.
+        this.micSource?.disconnect();
+        this.micStream = undefined;
+        this.micSource = undefined;
+        this.micOn = false;
+        this.micGain.gain.setValueAtTime(0, this.ctx.currentTime);
+        this.onMicLost?.();
       });
-      this.ctx.createMediaStreamSource(this.micStream).connect(this.micGain);
+      this.micStream = stream;
+      this.micSource = this.ctx.createMediaStreamSource(stream);
+      this.micSource.connect(this.micGain);
+      this.micSource.connect(this.micAnalyser);
     }
+    this.micOn = on;
+    // 20 ms fade avoids clicks.
     this.micGain.gain.setTargetAtTime(on ? 1 : 0, this.ctx.currentTime, 0.02);
   }
 

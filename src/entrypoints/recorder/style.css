@@ -21,3 +21,7 @@ main { padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
 .buttons button:disabled { opacity: .5; cursor: default; }
 .buttons .danger { background: var(--red); color: #fff; border-color: transparent; }
 .hint { margin: 0; color: var(--muted); font-size: 12px; }
+.mic-toggle { padding: 3px 10px; border-radius: 999px; border: 1px solid #0000001f; background: var(--card); color: var(--fg); font: inherit; cursor: pointer; white-space: nowrap; }
+.mic-toggle.on { background: #1e88e5; color: #fff; border-color: transparent; }
+.mic-toggle:disabled { opacity: .5; cursor: default; }
+.meter > .mic-level { background: #1e88e5; }

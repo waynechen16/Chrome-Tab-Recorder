@@ -20,18 +20,20 @@ export type ErrorCode =
 
 /** popup → background */
 export type PopupCommand =
-  | { to: 'background'; type: 'START'; tabId: number; tabTitle: string }
+  | { to: 'background'; type: 'START'; tabId: number; tabTitle: string; micOn: boolean }
   | { to: 'background'; type: 'STOP' }
   | { to: 'background'; type: 'PAUSE' }
   | { to: 'background'; type: 'RESUME' }
   | { to: 'background'; type: 'SHOW_RECORDER' }
+  | { to: 'background'; type: 'SET_MIC'; enabled: boolean }
   | { to: 'background'; type: 'ACK_ERROR' };
 
 /** background → recorder */
 export type RecorderCommand =
   | { to: 'recorder'; type: 'STOP' }
   | { to: 'recorder'; type: 'PAUSE' }
-  | { to: 'recorder'; type: 'RESUME' };
+  | { to: 'recorder'; type: 'RESUME' }
+  | { to: 'recorder'; type: 'SET_MIC'; enabled: boolean };
 
 /** recorder → background */
 export type RecorderEvent =
@@ -44,6 +46,9 @@ export type RecorderEvent =
       /** Active (un-paused) recording time so far. */
       elapsedMs: number;
       audioPlaybackBlocked: boolean;
+      micOn: boolean;
+      /** Why the mic is off although the user asked for it (cleared on success). */
+      micError?: string;
       warning?: string;
     }
   | { to: 'background'; type: 'DONE'; fileName: string; bytes: number; durationMs: number; durationFixed: boolean }
@@ -53,7 +58,7 @@ export type BackgroundMessage = PopupCommand | RecorderEvent;
 
 /** Response to RECORDER_READY: everything the recorder needs to start. */
 export type InitResponse =
-  | { ok: true; streamId: string; tabId: number; tabTitle: string; settings: Settings }
+  | { ok: true; streamId: string; tabId: number; tabTitle: string; micOn: boolean; settings: Settings }
   | { ok: false; code: ErrorCode; message: string };
 
 export type CommandResponse = { ok: true } | { ok: false; code: ErrorCode; message: string };
